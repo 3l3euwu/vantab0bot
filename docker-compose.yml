@@ -1,0 +1,15 @@
+services:
+  vantab:
+    build: .
+    container_name: vantab
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    # Vantab needs no inbound ports.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

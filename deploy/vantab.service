@@ -1,0 +1,28 @@
+[Unit]
+Description=Vantab Discord moderation bot
+Documentation=https://github.com/3l3euwu/vantab0bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vantab
+Group=vantab
+WorkingDirectory=/opt/vantab
+EnvironmentFile=/opt/vantab/.env
+ExecStart=/opt/vantab/.venv/bin/python bot.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/vantab/data
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

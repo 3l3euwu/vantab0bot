@@ -1,3 +1,32 @@
+# secrets
 tkn.txt
+token.txt
+.env
+.env.*
+!.env.example
+
+# runtime data
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
 /dist
 /builds
+
+# tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# editors / os
+.DS_Store
+.vscode/

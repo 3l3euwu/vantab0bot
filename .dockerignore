@@ -1,0 +1,15 @@
+.git
+.github
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+data
+tests
+.env
+tkn.txt
+*.db
+*.db-wal
+*.db-shm
+.idea
