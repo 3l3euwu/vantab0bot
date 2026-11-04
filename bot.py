@@ -30,8 +30,23 @@ CLOSE_HINTS: dict[int, str] = {
     4010: "Invalid shard — the shard/shard_count values are wrong.",
     4011: "The bot is in too many servers — sharding is required.",
     4013: "Invalid intents — unknown intent bits were requested.",
-    4014: "Privileged intents not enabled — enable Server Members + Message Content.",
+    4014: "Privileged intents not enabled — Developer Portal → your app → Bot → "
+    "Privileged Gateway Intents: tick SERVER MEMBERS INTENT and MESSAGE CONTENT INTENT, "
+    "click Save Changes, then restart.",
 }
+
+#: Application flags telling whether a privileged intent is granted.
+GATEWAY_GUILD_MEMBERS = 1 << 14
+GATEWAY_GUILD_MEMBERS_LIMITED = 1 << 15
+GATEWAY_MESSAGE_CONTENT = 1 << 18
+GATEWAY_MESSAGE_CONTENT_LIMITED = 1 << 19
+
+
+def intent_status(flags: int) -> tuple[bool, bool]:
+    """Return ``(server_members_enabled, message_content_enabled)`` from app flags."""
+    members = bool(flags & (GATEWAY_GUILD_MEMBERS | GATEWAY_GUILD_MEMBERS_LIMITED))
+    content = bool(flags & (GATEWAY_MESSAGE_CONTENT | GATEWAY_MESSAGE_CONTENT_LIMITED))
+    return members, content
 
 
 def main() -> int:
@@ -55,8 +70,10 @@ def main() -> int:
         return 1
     except discord.PrivilegedIntentsRequired:
         log.critical(
-            "The Message Content and Server Members intents must be enabled in the "
-            "Discord developer portal for this application."
+            "Discord refused the connection: privileged intents are disabled for this app.\n"
+            "  Fix: Developer Portal → your app → Bot → Privileged Gateway Intents,\n"
+            "       enable SERVER MEMBERS INTENT + MESSAGE CONTENT INTENT, click Save Changes,\n"
+            "       then restart Vantab. Verify with `python bot.py --check`."
         )
         return 1
     except discord.ConnectionClosed as exc:
@@ -110,6 +127,20 @@ async def _check_http(settings: Settings, headers: dict[str, str]) -> int:
                 print(f"   Servers ({len(guilds)}): {names}{more}" if guilds else "   Servers: none — invite it!")
             else:
                 print(f"   Could not list servers (HTTP {resp.status}).")
+
+        async with http.get(f"{API}/applications/@me") as resp:
+            if resp.status == 200:
+                flags = int((await resp.json()).get("flags", 0) or 0)
+                members, content = intent_status(flags)
+                print(f"   Privileged intents: server-members={'ON' if members else 'OFF'}, "
+                      f"message-content={'ON' if content else 'OFF'}")
+                if not (members and content):
+                    ok = False
+                    print("! Discord will refuse the gateway connection until both are enabled:\n"
+                          "  Developer Portal → your app → Bot → Privileged Gateway Intents,\n"
+                          "  tick SERVER MEMBERS INTENT + MESSAGE CONTENT INTENT, then Save Changes.")
+            else:
+                print(f"   Could not read the application flags (HTTP {resp.status}).")
 
         async with http.get(f"{API}/gateway/bot") as resp:
             if resp.status == 200:

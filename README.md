@@ -442,7 +442,7 @@ docs/COMMANDS.md           full command reference
 | `Gateway closed with code 4004` | Token no longer valid — reset it in the portal and update `tkn.txt`. |
 | `Gateway closed with code 4008` | Discord is rate-limiting IDENTIFY: wait ~15 minutes and make sure only one instance runs. |
 | `Vantab never reached READY` | Run `python bot.py --check` — it reports token identity, servers and remaining gateway sessions. |
-| `PrivilegedIntentsRequired` | Enable **Server Members** + **Message Content** in the Developer Portal. |
+| `PrivilegedIntentsRequired` / code `4014` | Developer Portal → your app → **Bot** → **Privileged Gateway Intents**: tick **SERVER MEMBERS INTENT** + **MESSAGE CONTENT INTENT**, click **Save Changes**, then restart. `python bot.py --check` reports both toggles. |
 | Slash commands missing | Wait up to an hour for global sync, or set `DEV_GUILD_ID` for instant sync. Re-invite with the `applications.commands` scope. |
 | AI says "backend returned 401" | Wrong key. Check `api-key=` in `tkn.txt` (Gemini keys come from [Google AI Studio](https://aistudio.google.com/apikey)). |
 | AI says "backend returned 403" | The key lacks access to that model, or the Gemini API is not enabled for the project. |
