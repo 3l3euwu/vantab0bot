@@ -111,34 +111,57 @@ class AutoModEngine:
         return spec.default_duration if spec else 0
 
     # ------------------------------------------------------------------ bypass
-    def _bypass(self, message: discord.Message, config: GuildAutomodConfig) -> str | None:
-        author = message.author
-        if author.bot or message.webhook_id:
+    def exemption_for(
+        self,
+        *,
+        guild: discord.Guild,
+        member: discord.Member,
+        channel: discord.abc.GuildChannel | None,
+        config: GuildAutomodConfig,
+        is_bot: bool = False,
+    ) -> str | None:
+        """Why ``member`` is not checked in ``channel`` (``None`` = they are checked)."""
+        if is_bot:
             return "bot"
-        guild = message.guild
-        assert guild is not None
-        if author.id == guild.owner_id or author.id in self.bot.owner_ids:
+        if member.id == guild.owner_id or member.id in self.bot.owner_ids:
             return "owner"
-        if author.id in self.bot.settings.owner_ids:
+        if member.id in self.bot.settings.owner_ids:
             return "owner"
-        if message.channel.id in config.exemptions.get("channel", set()):
+        if channel is not None and channel.id in config.exemptions.get("channel", set()):
             return "channel-exempt"
-        if author.id in config.exemptions.get("user", set()):
+        if member.id in config.exemptions.get("user", set()):
             return "user-exempt"
-        member = message.author if getattr(message.author, "guild", None) is not None else None
-        if member is not None:
-            role_ids = {role.id for role in getattr(member, "roles", [])}
-            if role_ids & config.exemptions.get("role", set()):
-                return "role-exempt"
+        role_ids = {role.id for role in getattr(member, "roles", [])}
+        if role_ids & config.exemptions.get("role", set()):
+            return "role-exempt"
+        if channel is not None and not config.settings.raid_mode:
             try:
-                perms = message.channel.permissions_for(member)
+                perms = channel.permissions_for(member)
             except (TypeError, AttributeError):
                 perms = None
-            if perms is not None and not config.settings.raid_mode and (
+            if perms is not None and (
                 perms.administrator or perms.manage_messages or perms.manage_guild
             ):
                 return "moderator"
         return None
+
+    def bypass_reason(
+        self, message: discord.Message, config: GuildAutomodConfig
+    ) -> str | None:
+        guild = message.guild
+        assert guild is not None
+        if message.webhook_id:
+            return "webhook"
+        return self.exemption_for(
+            guild=guild,
+            member=message.author,
+            channel=message.channel,
+            config=config,
+            is_bot=message.author.bot,
+        )
+
+    # Backwards-compatible private alias.
+    _bypass = bypass_reason
 
     # ----------------------------------------------------------------- context
     def build_context(self, message: discord.Message) -> MessageContext:
@@ -196,7 +219,14 @@ class AutoModEngine:
 
         if not config.settings.automod_enabled:
             return None
-        if self._bypass(message, config):
+        bypass = self.bypass_reason(message, config)
+        if bypass:
+            log.debug(
+                "automod: skipped %s in guild %s (%s)",
+                message.author.id,
+                message.guild.id,
+                bypass,
+            )
             return None
 
         ctx = self.build_context(message)

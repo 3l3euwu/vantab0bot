@@ -23,6 +23,17 @@ log = logging.getLogger("vantab.cogs.automod_config")
 
 VALID_ACTIONS = ("none", "delete", "warn", "timeout", "kick", "ban")
 
+#: Human wording for why someone is not filtered.
+EXEMPTION_LABELS = {
+    "owner": "you are the server owner or a bot owner",
+    "moderator": "you have Administrator / Manage Messages / Manage Server",
+    "channel-exempt": "this channel is exempt",
+    "user-exempt": "you are exempt",
+    "role-exempt": "one of your roles is exempt",
+    "bot": "bots are never filtered",
+    "webhook": "webhooks are never filtered",
+}
+
 
 def config_only(func: Callable) -> Callable:
     """Guild-only + Manage Server, applied to every automod command."""
@@ -105,6 +116,14 @@ class AutoModConfig(commands.Cog, name="AutoMod"):
         )
         embed.add_field(name="Banned words", value=str(len(config.badwords)), inline=True)
         embed.add_field(name="Allowed domains", value=str(len(config.allowlist)), inline=True)
+        exempt = self._exemption(ctx, config)
+        if exempt:
+            embed.description = (
+                f"{embed.description}\n\n"
+                f"⚠️ **You bypass auto-moderation here** ({EXEMPTION_LABELS.get(exempt, exempt)}). "
+                "Your own messages are never checked — preview a rule with `~automod test <text>`, "
+                "or try from an account without moderator permissions."
+            )
         embed.set_footer(text="~automod rules · ~automod set <rule> <action> · ~automod test <text>")
         await ctx.reply(embed=embed, mention_author=False)
 
@@ -283,6 +302,14 @@ class AutoModConfig(commands.Cog, name="AutoMod"):
             ),
             inline=True,
         )
+        exempt = self._exemption(ctx, config)
+        if exempt:
+            embed.set_footer(
+                text=(
+                    f"Preview only — in a real message you would be exempt "
+                    f"({EXEMPTION_LABELS.get(exempt, exempt)})."
+                )
+            )
         await ctx.reply(embed=embed, mention_author=False)
 
     # ----------------------------------------------------------------- badwords

@@ -139,3 +139,81 @@ async def test_automod_rules_are_documented(bot: Vantab) -> None:
     for spec in RULES.values():
         assert spec.label and spec.description
         assert spec.default_action in {"none", "delete", "warn", "timeout", "kick", "ban"}
+
+
+async def test_command_prefix_resolves(bot: Vantab) -> None:
+    from types import SimpleNamespace
+
+    bot._connection.user = SimpleNamespace(id=999)  # type: ignore[assignment]
+    message = SimpleNamespace(guild=None, content="~help")
+    prefixes = await bot.get_prefix(message)
+    assert "~" in prefixes
+    assert any(prefix.startswith("<@999>") for prefix in prefixes)
+
+
+async def test_automod_runs_before_commands(bot: Vantab, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    seen: list[str] = []
+
+    async def fake_process(message):
+        seen.append("automod")
+
+    async def fake_process_commands(message):
+        seen.append("commands")
+
+    monkeypatch.setattr(bot.automod, "process", fake_process)
+    monkeypatch.setattr(bot, "process_commands", fake_process_commands)
+
+    message = SimpleNamespace(
+        guild=SimpleNamespace(id=1),
+        author=SimpleNamespace(bot=False, id=5),
+        content="porn",
+        attachments=[],
+        id=1,
+    )
+    await bot.on_message(message)
+    assert seen == ["automod", "commands"]
+
+
+async def test_automod_errors_do_not_block_commands(bot: Vantab, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    called: list[str] = []
+
+    async def boom(message):
+        raise RuntimeError("automod exploded")
+
+    async def fake_process_commands(message):
+        called.append("commands")
+
+    monkeypatch.setattr(bot.automod, "process", boom)
+    monkeypatch.setattr(bot, "process_commands", fake_process_commands)
+
+    message = SimpleNamespace(
+        guild=SimpleNamespace(id=1),
+        author=SimpleNamespace(bot=False, id=5),
+        content="hello",
+        attachments=[],
+        id=2,
+    )
+    await bot.on_message(message)
+    assert called == ["commands"]
+
+
+async def test_edited_messages_are_checked(bot: Vantab, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    checked: list[str] = []
+
+    async def fake_process(message):
+        checked.append(message.content)
+
+    monkeypatch.setattr(bot.automod, "process", fake_process)
+
+    guild = SimpleNamespace(id=1)
+    author = SimpleNamespace(bot=False, id=5)
+    before = SimpleNamespace(guild=guild, author=author, content="hello", attachments=[], id=3)
+    after = SimpleNamespace(guild=guild, author=author, content="hello porn", attachments=[], id=3)
+    await bot.on_message_edit(before, after)
+    assert checked == ["hello porn"]

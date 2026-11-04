@@ -243,6 +243,12 @@ Administrators, the server owner, exempt roles/users/channels and bot owners
 bypass auto-mod. During **raid mode** that bypass is suspended for everyone but
 the owner, so compromised moderator accounts cannot abuse it.
 
+> **Testing from your own account:** your messages are intentionally *not*
+> filtered if you are the owner or have Manage Messages/Administrator —
+> `~automod status` now says so and `~automod test <text>` previews the rules
+> anyway. To see a live deletion, try from a second account without moderator
+> permissions (or give that account no roles).
+
 ---
 
 ## Commands
@@ -387,7 +393,7 @@ inbound ports, webhooks or public URL.
 source .venv/bin/activate
 pip install -r requirements-dev.txt
 
-python -m pytest -q          # 173 tests
+python -m pytest -q          # 182 tests
 ruff check .                 # lint
 python bot.py                # run locally
 ```
@@ -427,7 +433,7 @@ vantab/
     tasks.py               background loops
   ui/views.py              confirmations, paginator, persistent verify button
   utils/                   durations, embeds, text helpers
-tests/                     pytest suite (173 tests)
+tests/                     pytest suite (182 tests)
 docs/COMMANDS.md           full command reference
 ```
 

@@ -109,7 +109,7 @@ class Vantab(commands.Bot):
 
     async def close(self) -> None:
         log.info("Shutting down Vantab…")
-        if not self._ready_once:
+        if not self._ready_once and self.ws is not None:
             log.warning(
                 "Vantab never reached READY. Discord dropped the session before login completed — "
                 "usual causes, in order: (1) the same bot token is running somewhere else (another "
@@ -120,6 +120,26 @@ class Vantab(commands.Bot):
             await self.session.close()
         await self.db.close()
         await super().close()
+
+    async def _run_automod(self, message: discord.Message) -> None:
+        if message.guild is None or message.author.bot:
+            return
+        if not message.content and not message.attachments:
+            return
+        try:
+            await self.automod.process(message)
+        except Exception:  # never let moderation take the bot down
+            log.exception("Auto-mod failed on message %s", message.id)
+
+    async def on_message(self, message: discord.Message) -> None:
+        """Moderate every message, then let the command layer see it."""
+        await self._run_automod(message)
+        await super().on_message(message)
+
+    async def on_message_edit(self, before: discord.Message, after: discord.Message) -> None:
+        """Re-check edited messages: sneaking a banned word in must not work."""
+        if before.content != after.content:
+            await self._run_automod(after)
 
     async def on_ready(self) -> None:
         self._ready_once = True
@@ -160,17 +180,23 @@ class Vantab(commands.Bot):
             log.debug("Could not update presence", exc_info=True)
 
     # ------------------------------------------------------------------ prefix
-    async def _prefix(self, message: discord.Message) -> Iterable[str]:
-        default = self.settings.default_prefix
+    async def _prefix(self, bot: Vantab, message: discord.Message) -> Iterable[str]:
+        """Resolve the prefix for ``message``.
+
+        discord.py calls ``command_prefix(bot, message)``; because this is a
+        bound method both arguments are needed here (``bot`` is ``self``).
+        """
+        default = (self.settings.default_prefix or "~").strip() or "~"
         prefixes = {default, f"{default} "}
         if message.guild is not None:
             try:
                 settings = await self.guild_settings(message.guild.id)
-                if settings.prefix:
-                    prefixes = {settings.prefix, f"{settings.prefix} "}
+                custom = (settings.prefix or "").strip()
+                if custom:
+                    prefixes = {custom, f"{custom} "}
             except Exception:
                 pass
-        return commands.when_mentioned_or(*prefixes)(self, message)
+        return commands.when_mentioned_or(*prefixes)(bot, message)
 
     # ---------------------------------------------------------------- settings
     async def guild_settings(self, guild_id: int, *, force: bool = False) -> GuildSettings:
