@@ -86,6 +86,7 @@ backwards compatibility.
 ### 4. Run
 
 ```bash
+python bot.py --check     # optional: validates the token, servers and AI key
 python bot.py
 ```
 
@@ -437,6 +438,10 @@ docs/COMMANDS.md           full command reference
 | Symptom | Fix |
 | --- | --- |
 | `Missing Discord token` | Add `discord-token=...` to `tkn.txt`, or set `DISCORD_TOKEN` in `.env`. |
+| Repeated `session has been invalidated`, then shutdown | The same token is connected somewhere else — another terminal, a service manager, or a host. Kill the duplicate (`Get-Process python` on Windows) and restart. If it persists, reset the token. |
+| `Gateway closed with code 4004` | Token no longer valid — reset it in the portal and update `tkn.txt`. |
+| `Gateway closed with code 4008` | Discord is rate-limiting IDENTIFY: wait ~15 minutes and make sure only one instance runs. |
+| `Vantab never reached READY` | Run `python bot.py --check` — it reports token identity, servers and remaining gateway sessions. |
 | `PrivilegedIntentsRequired` | Enable **Server Members** + **Message Content** in the Developer Portal. |
 | Slash commands missing | Wait up to an hour for global sync, or set `DEV_GUILD_ID` for instant sync. Re-invite with the `applications.commands` scope. |
 | AI says "backend returned 401" | Wrong key. Check `api-key=` in `tkn.txt` (Gemini keys come from [Google AI Studio](https://aistudio.google.com/apikey)). |

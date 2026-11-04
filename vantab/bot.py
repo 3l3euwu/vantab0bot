@@ -67,6 +67,7 @@ class Vantab(commands.Bot):
         self.persona: Persona = load_persona(settings.persona_file or None)
         self.messages = MessageCache()
         self.started_at: datetime = utcnow()
+        self._ready_once = False
         self._settings_cache: dict[int, tuple[float, GuildSettings]] = {}
 
     # --------------------------------------------------------------- lifecycle
@@ -108,12 +109,20 @@ class Vantab(commands.Bot):
 
     async def close(self) -> None:
         log.info("Shutting down Vantab…")
+        if not self._ready_once:
+            log.warning(
+                "Vantab never reached READY. Discord dropped the session before login completed — "
+                "usual causes, in order: (1) the same bot token is running somewhere else (another "
+                "terminal, service manager, host), (2) the token was reset, (3) too many IDENTIFYs "
+                "in a short time. Run `python bot.py --check` for diagnostics."
+            )
         if self.session is not None and not self.session.closed:
             await self.session.close()
         await self.db.close()
         await super().close()
 
     async def on_ready(self) -> None:
+        self._ready_once = True
         log.info(
             "Logged in as %s (%s) · %s guilds · discord.py %s",
             self.user, getattr(self.user, "id", "?"), len(self.guilds), discord.__version__,
