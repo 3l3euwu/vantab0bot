@@ -18,12 +18,17 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from .credentials import DEFAULT_CREDENTIALS_FILE, Credentials, read_credentials
 from .persona import Persona, load_persona
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 #: Provider presets so users only have to set ``AI_PROVIDER`` + ``AI_API_KEY``.
 PROVIDER_PRESETS: dict[str, dict[str, str]] = {
+    "gemini": {
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "model": "gemini-3.1-flash-lite",
+    },
     "openai": {"base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
     "openrouter": {"base_url": "https://openrouter.ai/api/v1", "model": "openai/gpt-4o-mini"},
     "groq": {"base_url": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile"},
@@ -33,6 +38,20 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
     "ollama": {"base_url": "http://127.0.0.1:11434/v1", "model": "llama3.1"},
     "lmstudio": {"base_url": "http://127.0.0.1:1234/v1", "model": "local-model"},
     "custom": {"base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
+}
+
+#: Friendly provider names → preset keys.
+PROVIDER_ALIASES: dict[str, str] = {
+    "google": "gemini",
+    "google-ai": "gemini",
+    "googleai": "gemini",
+    "google-gemini": "gemini",
+    "gemini-api": "gemini",
+    "google-genai": "gemini",
+    "open-ai": "openai",
+    "open-router": "openrouter",
+    "lm-studio": "lmstudio",
+    "local": "ollama",
 }
 
 
@@ -87,19 +106,6 @@ def _id_set(name: str) -> frozenset[int]:
     return frozenset(out)
 
 
-def _read_token_file() -> str | None:
-    """Legacy support for the ``tkn.txt`` file the original repo shipped with."""
-    for candidate in (BASE_DIR / "tkn.txt", BASE_DIR / "token.txt"):
-        try:
-            if candidate.is_file():
-                token = candidate.read_text(encoding="utf-8").strip()
-                if token:
-                    return token
-        except OSError:  # pragma: no cover - unreadable file
-            continue
-    return None
-
-
 @dataclass(frozen=True, slots=True)
 class Settings:
     """Immutable snapshot of the bot configuration."""
@@ -142,6 +148,7 @@ class Settings:
     persona_file: Path = BASE_DIR / "prompts" / "persona.json"
     ai_style: str = "elee"
     ai_greeting: str | None = None
+    credentials_file: Path | None = None
 
     @property
     def persona(self) -> Persona:
@@ -169,18 +176,47 @@ class Settings:
     def load(cls) -> Settings:
         load_dotenv(BASE_DIR / ".env", override=False)
 
-        provider = (_env("AI_PROVIDER", "openai") or "openai").lower()
+        # --- credentials file (tkn.txt) ---------------------------------
+        credentials_path = Path(_env("CREDENTIALS_FILE", DEFAULT_CREDENTIALS_FILE) or DEFAULT_CREDENTIALS_FILE)
+        if not credentials_path.is_absolute():
+            credentials_path = (BASE_DIR / credentials_path).resolve()
+        credentials: Credentials | None = read_credentials(credentials_path)
+        legacy_token: str | None = None
+        if credentials is None or not credentials.token:
+            legacy = read_credentials(BASE_DIR / "token.txt")
+            if legacy is not None and legacy.token:
+                legacy_token = legacy.token
+                if credentials is None:
+                    credentials = legacy
+                    credentials_path = BASE_DIR / "token.txt"
+
+        provider_raw = credentials.provider if credentials else None
+        provider = (provider_raw or _env("AI_PROVIDER", "gemini") or "gemini").strip().lower()
+        provider = PROVIDER_ALIASES.get(provider, provider)
         preset = PROVIDER_PRESETS.get(provider, PROVIDER_PRESETS["custom"])
 
-        token = _env("DISCORD_TOKEN") or _read_token_file() or ""
+        token = (
+            (credentials.token if credentials else None)
+            or _env("DISCORD_TOKEN")
+            or legacy_token
+            or ""
+        )
         if not token:
             raise SystemExit(
                 "Missing Discord token.\n"
-                "Set DISCORD_TOKEN in your environment/.env file,\n"
-                "or create a tkn.txt file containing the token."
+                f"Create {credentials_path} with:\n"
+                "    discord-token=YOUR_DISCORD_BOT_TOKEN\n"
+                "    provider=gemini\n"
+                "    model=gemini-3.1-flash-lite\n"
+                "    api-key=YOUR_GEMINI_API_KEY\n"
+                "(see tkn.example.txt) or set DISCORD_TOKEN in your environment/.env file."
             )
 
-        base_url = (_env("AI_BASE_URL", preset["base_url"]) or preset["base_url"]).rstrip("/")
+        base_url = (
+            (credentials.base_url if credentials else None)
+            or _env("AI_BASE_URL", preset["base_url"])
+            or preset["base_url"]
+        ).rstrip("/")
         # Be forgiving: allow passing the full /chat/completions URL.
         if base_url.endswith("/chat/completions"):
             base_url = base_url[: -len("/chat/completions")]
@@ -214,13 +250,62 @@ class Settings:
             extra_headers["X-Title"] = "Vantab"
 
         persona = load_persona(persona_path)
-        style = (_env("AI_STYLE", "") or "").strip().lower() or persona.default_style
+        style = (
+            (credentials.style if credentials else None)
+            or (_env("AI_STYLE", "") or "")
+            or persona.default_style
+        ).strip().lower()
+        resolved_style = persona.resolve_style(style)
+        if resolved_style != style:
+            logging.getLogger("vantab.config").warning(
+                "Unknown AI style %r (available: %s) — using %r",
+                style,
+                ", ".join(persona.style_names),
+                resolved_style,
+            )
+        style = resolved_style
+
+        temperature = _float("AI_TEMPERATURE", 0.8, minimum=0.0, maximum=2.0)
+        if credentials and credentials.temperature:
+            try:
+                temperature = min(2.0, max(0.0, float(credentials.temperature)))
+            except ValueError:
+                logging.getLogger("vantab.config").warning(
+                    "Invalid temperature %r in %s — ignored", credentials.temperature, credentials_path
+                )
+        max_tokens = _int("AI_MAX_TOKENS", 1200, minimum=16, maximum=32000)
+        if credentials and credentials.max_tokens:
+            try:
+                max_tokens = min(32000, max(16, int(float(credentials.max_tokens))))
+            except ValueError:
+                logging.getLogger("vantab.config").warning(
+                    "Invalid max-tokens %r in %s — ignored", credentials.max_tokens, credentials_path
+                )
+        owner_ids = _id_set("OWNER_IDS")
+        if credentials and credentials.owner_ids:
+            owner_ids = frozenset(credentials.owner_ids)
+        api_key = (
+            (credentials.api_key if credentials else None)
+            or _env("AI_API_KEY", "not-needed")
+            or "not-needed"
+        )
+        model = (
+            (credentials.model if credentials else None)
+            or _env("AI_MODEL", preset["model"])
+            or preset["model"]
+        )
+        greeting = (credentials.greeting if credentials else None) or _env("AI_GREETING")
+        prefix_value = (
+            (credentials.prefix if credentials else None)
+            or _env("DEFAULT_PREFIX", "~")
+            or "~"
+        )
 
         dev_guild = _env("DEV_GUILD_ID")
         return cls(
             token=token,
-            owner_ids=_id_set("OWNER_IDS"),
-            default_prefix=_env("DEFAULT_PREFIX", "~") or "~",
+            owner_ids=owner_ids,
+            default_prefix=prefix_value,
             database_path=database_path,
             log_level=(_env("LOG_LEVEL", "INFO") or "INFO").upper(),
             dev_guild_id=int(dev_guild) if dev_guild and dev_guild.isdigit() else None,
@@ -229,10 +314,10 @@ class Settings:
             ai_enabled=_bool("AI_ENABLED", True),
             ai_provider=provider,
             ai_base_url=base_url,
-            ai_api_key=_env("AI_API_KEY", "not-needed") or "not-needed",
-            ai_model=_env("AI_MODEL", preset["model"]) or preset["model"],
-            ai_temperature=_float("AI_TEMPERATURE", 0.8, minimum=0.0, maximum=2.0),
-            ai_max_tokens=_int("AI_MAX_TOKENS", 1200, minimum=16, maximum=32000),
+            ai_api_key=api_key,
+            ai_model=model,
+            ai_temperature=temperature,
+            ai_max_tokens=max_tokens,
             ai_timeout=_float("AI_TIMEOUT", 120.0, minimum=5.0, maximum=600.0),
             ai_stream=_bool("AI_STREAM", True),
             ai_history_limit=_int("AI_HISTORY_LIMIT", 24, minimum=0, maximum=200),
@@ -248,7 +333,8 @@ class Settings:
             antinuke_poll_seconds=_float("ANTINUKE_POLL_SECONDS", 6.0, minimum=2.0, maximum=120.0),
             persona_file=persona_path,
             ai_style=style,
-            ai_greeting=_env("AI_GREETING"),
+            ai_greeting=greeting,
+            credentials_file=credentials_path if credentials else None,
         )
 
     def as_public_dict(self) -> dict[str, Any]:
@@ -263,6 +349,7 @@ class Settings:
             "ai_vision": self.ai_vision,
             "ai_style": self.ai_style,
             "persona": self.persona.bot_name,
+            "credentials_file": str(self.credentials_file) if self.credentials_file else None,
             "database": str(self.database_path),
             "dev_guild": self.dev_guild_id,
         }

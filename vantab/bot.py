@@ -118,6 +118,13 @@ class Vantab(commands.Bot):
             "Logged in as %s (%s) · %s guilds · discord.py %s",
             self.user, getattr(self.user, "id", "?"), len(self.guilds), discord.__version__,
         )
+        log.info(
+            "AI: provider=%s model=%s endpoint=%s (%s)",
+            self.settings.ai_provider,
+            self.settings.ai_model,
+            self.settings.ai_base_url,
+            f"credentials: {self.settings.credentials_file}" if self.settings.credentials_file else "environment",
+        )
         for guild in self.guilds:
             try:
                 await self.db.ensure_guild(guild.id)

@@ -492,6 +492,11 @@ class AI(commands.Cog, name="AI"):
         embed.add_field(name="Provider", value=f"`{settings.ai_provider}`", inline=True)
         embed.add_field(name="Model", value=f"`{settings.ai_model}`", inline=True)
         embed.add_field(name="Base URL", value=f"`{settings.ai_base_url}`", inline=False)
+        embed.add_field(
+            name="Credentials",
+            value=f"`{settings.credentials_file}`" if settings.credentials_file else "environment / .env",
+            inline=True,
+        )
         embed.add_field(name="Streaming", value="on" if settings.ai_stream else "off", inline=True)
         embed.add_field(name="Vision", value="on" if settings.ai_vision else "off", inline=True)
         embed.add_field(name="History", value=f"{settings.ai_history_limit} msgs", inline=True)

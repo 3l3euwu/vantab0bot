@@ -2,6 +2,9 @@
 
 **An autonomous Discord moderation bot with an AI that answers everything.**
 
+Powered by **Gemini 3.1 Flash-Lite** by default (`gemini-3.1-flash-lite`), configured
+from a single `tkn.txt` file.
+
 Vantab watches every message, catches spam, raids, scams, phishing links, leaked
 secrets and banned words, escalates punishments on repeat offenders, guards the
 server against nukers, runs a verification gate — and answers any question you
@@ -54,23 +57,31 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 3. Configure
+### 3. Configure — `tkn.txt`
+
+Vantab reads its credentials from **`tkn.txt`** in the project root:
 
 ```bash
-cp .env.example .env
+cp tkn.example.txt tkn.txt
 ```
-
-Edit `.env`:
 
 ```ini
-DISCORD_TOKEN=your-bot-token
-OWNER_IDS=your-discord-user-id
-
-# Any OpenAI-compatible AI provider
-AI_PROVIDER=openai
-AI_API_KEY=sk-...
-AI_MODEL=gpt-4o-mini
+discord-token=your-discord-bot-token
+provider=gemini
+model=gemini-3.1-flash-lite
+api-key=your-google-ai-studio-key
 ```
+
+That is all it needs. `tkn.txt` is git-ignored, and its values take precedence
+over `.env`. Key aliases are forgiving (`api-key`, `apikey`, `api_key`,
+`discord-token`, `bot-token`, `model`, `model-name`, `provider`,
+`base-url`, `style`, `greeting`, `temperature`, `max-tokens`, `owner-ids`,
+`prefix`), and `#` comments are allowed.
+
+Prefer environment variables? `.env` still works — copy `.env.example` to `.env`
+and set `DISCORD_TOKEN`, `AI_API_KEY`, `AI_MODEL` there instead. A bare
+single-line `tkn.txt` containing only the Discord token is still accepted for
+backwards compatibility.
 
 ### 4. Run
 
@@ -138,8 +149,13 @@ Features:
 - **Custom persona.** `~setaisystem <prompt>` sets a server-specific system
   prompt (placeholders work there too); `~setaisystem reset` restores the
   persona style.
+- **Gemini 3.1 Flash-Lite by default.** Google's OpenAI-compatible endpoint
+  (`https://generativelanguage.googleapis.com/v1beta/openai`) with the
+  `gemini-3.1-flash-lite` model — 1M-token context, fast and cheap.
 - **Any provider.** OpenAI, OpenRouter, Groq, Together, DeepInfra, Mistral,
   Ollama, LM Studio, vLLM, or anything exposing `/v1/chat/completions`.
+- **One credential file.** `tkn.txt` holds `discord-token`, `provider`, `model`
+  and `api-key`; `~aistatus` shows which file was loaded.
 - **Health check.** `~aistatus` (bot owner) shows model, latency and errors.
 
 > **Honest note about "unrestricted":** Vantab itself applies no filters,
@@ -152,6 +168,7 @@ Features:
 
 | `AI_PROVIDER` | Default base URL | Default model |
 | --- | --- | --- |
+| `gemini` *(default)* | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.1-flash-lite` |
 | `openai` | `https://api.openai.com/v1` | `gpt-4o-mini` |
 | `openrouter` | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` |
 | `groq` | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
@@ -281,7 +298,8 @@ All settings are environment variables (`.env` or the process environment).
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `DISCORD_TOKEN` | — | **Required.** Bot token (or put it in `tkn.txt`). |
+| `CREDENTIALS_FILE` | `tkn.txt` | File to read `discord-token` / `api-key` / `model` / `provider` from. |
+| `DISCORD_TOKEN` | — | **Required** unless set in `tkn.txt`. Bot token. |
 | `OWNER_IDS` | — | Comma-separated user IDs allowed to use owner commands. |
 | `DEFAULT_PREFIX` | `~` | Default command prefix. |
 | `DEV_GUILD_ID` | — | Sync slash commands to one guild instantly. |
@@ -290,10 +308,10 @@ All settings are environment variables (`.env` or the process environment).
 | `STATUS_TEXT` | `over {guilds} servers · ~{question}` | Bot presence. |
 | `ACTIVITY_TYPE` | `watching` | `watching`, `playing`, `listening`, `competing`. |
 | `AI_ENABLED` | `true` | Master switch for the AI. |
-| `AI_PROVIDER` | `openai` | See the provider table. |
+| `AI_PROVIDER` | `gemini` | See the provider table. |
 | `AI_BASE_URL` | provider default | OpenAI-compatible endpoint. |
-| `AI_API_KEY` | — | Provider key (not needed for local models). |
-| `AI_MODEL` | provider default | Model identifier. |
+| `AI_API_KEY` | — | Provider key (not needed for local models). Use `api-key=` in `tkn.txt` instead. |
+| `AI_MODEL` | `gemini-3.1-flash-lite` | Model identifier. |
 | `AI_TEMPERATURE` | `0.8` | 0 – 2. |
 | `AI_MAX_TOKENS` | `1200` | Max response length. |
 | `AI_TIMEOUT` | `120` | Request timeout in seconds. |
@@ -324,8 +342,12 @@ All settings are environment variables (`.env` or the process environment).
 ```bash
 docker build -t vantab .
 docker run -d --name vantab --restart unless-stopped \
-  --env-file .env -v "$PWD/data:/app/data" vantab
+  --env-file .env -v "$PWD/data:/app/data" \
+  -v "$PWD/tkn.txt:/app/tkn.txt:ro" vantab
 ```
+
+`tkn.txt` is **not** baked into the image (it is in `.dockerignore`) — mount it
+read-only as above, or configure everything through `.env`.
 
 ### Docker Compose
 
@@ -333,6 +355,9 @@ docker run -d --name vantab --restart unless-stopped \
 docker compose up -d --build
 docker compose logs -f vantab
 ```
+
+Uncomment the `./tkn.txt:/app/tkn.txt:ro` line in `docker-compose.yml` if you
+keep your credentials in `tkn.txt`.
 
 ### systemd (VPS)
 
@@ -361,7 +386,7 @@ inbound ports, webhooks or public URL.
 source .venv/bin/activate
 pip install -r requirements-dev.txt
 
-python -m pytest -q          # 154 tests
+python -m pytest -q          # 173 tests
 ruff check .                 # lint
 python bot.py                # run locally
 ```
@@ -376,12 +401,14 @@ the AI client (with a fake HTTP session) and a full cog load.
 ```
 bot.py                     entry point
 prompts/persona.json       AI name, greeting, styles (edit me!)
+tkn.example.txt            template for tkn.txt credentials
 vantab/
   bot.py                   Vantab client: intents, prefix, errors, logging hooks
   config.py                environment configuration + provider presets
   database.py              SQLite schema and typed accessors
   ai.py                    OpenAI-compatible client (streaming, retries, vision)
   persona.py               persona files, style resolution, placeholders
+  credentials.py           tkn.txt parsing (discord-token, provider, model, api-key…)
   checks.py                permission helpers and error embeds
   cache.py                 recent-message cache for delete/edit logs
   automod/
@@ -399,7 +426,7 @@ vantab/
     tasks.py               background loops
   ui/views.py              confirmations, paginator, persistent verify button
   utils/                   durations, embeds, text helpers
-tests/                     pytest suite (154 tests)
+tests/                     pytest suite (173 tests)
 docs/COMMANDS.md           full command reference
 ```
 
@@ -409,10 +436,11 @@ docs/COMMANDS.md           full command reference
 
 | Symptom | Fix |
 | --- | --- |
-| `Missing Discord token` | Set `DISCORD_TOKEN` in `.env` or create `tkn.txt`. |
+| `Missing Discord token` | Add `discord-token=...` to `tkn.txt`, or set `DISCORD_TOKEN` in `.env`. |
 | `PrivilegedIntentsRequired` | Enable **Server Members** + **Message Content** in the Developer Portal. |
 | Slash commands missing | Wait up to an hour for global sync, or set `DEV_GUILD_ID` for instant sync. Re-invite with the `applications.commands` scope. |
-| AI says "backend returned 401" | Wrong `AI_API_KEY` (or the provider needs `AI_BASE_URL`). |
+| AI says "backend returned 401" | Wrong key. Check `api-key=` in `tkn.txt` (Gemini keys come from [Google AI Studio](https://aistudio.google.com/apikey)). |
+| AI says "backend returned 403" | The key lacks access to that model, or the Gemini API is not enabled for the project. |
 | AI says "backend returned 404" | Model name or base URL is wrong. Check the provider's docs. |
 | Auto-mod does nothing | `~automod status`; check the channel isn't exempt and that Vantab has **Manage Messages**. |
 | "That member's highest role is above mine" | Drag Vantab's role higher in **Server Settings → Roles**. |
