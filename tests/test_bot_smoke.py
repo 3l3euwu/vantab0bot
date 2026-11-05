@@ -2,25 +2,11 @@
 
 from __future__ import annotations
 
-import pytest
-from conftest import make_settings
-from discord.ext import tasks
+import inspect
+import re
 
-from vantab.bot import INITIAL_COGS, Vantab
+from vantab.bot import Vantab
 from vantab.ui.views import ConfirmView, Paginator, VerifyView
-
-
-@pytest.fixture()
-async def bot(monkeypatch):
-    # Background loops need a logged-in client; skip them in unit tests.
-    monkeypatch.setattr(tasks.Loop, "start", lambda self, *args, **kwargs: None)
-    instance = Vantab(make_settings(owner_ids=frozenset({1234})))
-    for extension in INITIAL_COGS:
-        await instance.load_extension(extension)
-    yield instance
-    for name in list(instance.cogs):
-        await instance.remove_cog(name)
-    await instance.close()
 
 
 async def test_persona_loaded(bot: Vantab) -> None:
@@ -217,3 +203,14 @@ async def test_edited_messages_are_checked(bot: Vantab, monkeypatch) -> None:
     after = SimpleNamespace(guild=guild, author=author, content="hello porn", attachments=[], id=3)
     await bot.on_message_edit(before, after)
     assert checked == ["hello porn"]
+
+
+async def test_every_private_helper_is_defined(bot: Vantab) -> None:
+    """Catch ``self._thing()`` calls whose helper was never written."""
+    missing: list[str] = []
+    for name, cog in bot.cogs.items():
+        source = inspect.getsource(type(cog))
+        for helper in sorted(set(re.findall(r"self\.(_[A-Za-z_]\w*)\(", source))):
+            if not hasattr(cog, helper):
+                missing.append(f"{name}.{helper}")
+    assert not missing, f"helpers called but not defined: {missing}"

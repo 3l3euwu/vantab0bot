@@ -12,6 +12,9 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from discord.ext import tasks  # noqa: E402
+
+from vantab.bot import INITIAL_COGS, Vantab  # noqa: E402
 from vantab.config import Settings  # noqa: E402
 from vantab.database import Database  # noqa: E402
 
@@ -57,6 +60,19 @@ def make_settings(**overrides: Any) -> Settings:
 @pytest.fixture()
 def settings() -> Settings:
     return make_settings()
+
+
+@pytest.fixture()
+async def bot(monkeypatch):
+    """A fully-loaded bot (background loops are not started)."""
+    monkeypatch.setattr(tasks.Loop, "start", lambda self, *args, **kwargs: None)
+    instance = Vantab(make_settings(owner_ids=frozenset({1234})))
+    for extension in INITIAL_COGS:
+        await instance.load_extension(extension)
+    yield instance
+    for name in list(instance.cogs):
+        await instance.remove_cog(name)
+    await instance.close()
 
 
 @pytest.fixture()

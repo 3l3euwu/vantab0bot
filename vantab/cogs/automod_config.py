@@ -69,6 +69,26 @@ class AutoModConfig(commands.Cog, name="AutoMod"):
     def __init__(self, bot: Vantab) -> None:
         self.bot = bot
 
+    def _exemption(self, ctx: commands.Context, config) -> str | None:
+        """Why the person running the command is not checked (``None`` if they are)."""
+        guild = getattr(ctx, "guild", None)
+        member = getattr(ctx, "author", None)
+        if guild is None or member is None or not hasattr(member, "roles"):
+            return None
+        channel = getattr(ctx, "channel", None)
+        if not isinstance(channel, discord.abc.GuildChannel):
+            channel = None
+        try:
+            return self.bot.automod.exemption_for(
+                guild=guild,
+                member=member,
+                channel=channel,
+                config=config,
+                is_bot=bool(getattr(member, "bot", False)),
+            )
+        except (TypeError, AttributeError):  # pragma: no cover - exotic contexts
+            return None
+
     async def _config(self, ctx: commands.Context):
         guild = ctx.guild
         assert guild is not None
