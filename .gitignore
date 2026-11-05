@@ -28,5 +28,5 @@ venv/
 htmlcov/
 
 # editors / os
-.DS_Store 
+.DS_Store
 .vscode/
