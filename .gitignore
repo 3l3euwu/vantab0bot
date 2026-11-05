@@ -30,3 +30,4 @@ htmlcov/
 # editors / os
 .DS_Store
 .vscode/
+tkn.example.txt
