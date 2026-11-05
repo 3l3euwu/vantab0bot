@@ -214,3 +214,10 @@ async def test_every_private_helper_is_defined(bot: Vantab) -> None:
             if not hasattr(cog, helper):
                 missing.append(f"{name}.{helper}")
     assert not missing, f"helpers called but not defined: {missing}"
+
+
+def test_owner_ids_never_none() -> None:
+    from conftest import make_settings
+
+    instance = Vantab(make_settings(owner_ids=frozenset()))
+    assert instance.owner_ids == frozenset()

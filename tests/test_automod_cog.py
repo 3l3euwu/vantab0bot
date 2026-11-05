@@ -71,3 +71,13 @@ def test_dm_context_has_no_exemption(bot: Vantab) -> None:
     cog = bot.get_cog("AutoMod")
     ctx = SimpleNamespace(guild=None, author=_member(5), channel=None)
     assert cog._exemption(ctx, _config()) is None
+
+
+def test_exemption_works_without_configured_owners(bot: Vantab) -> None:
+    """A fresh install has no OWNER_IDS: discord.py then stores None."""
+    bot.owner_ids = None  # type: ignore[assignment]
+    config = _config()
+    guild = SimpleNamespace(owner_id=1)
+    assert bot.automod.exemption_for(
+        guild=guild, member=_member(3), channel=None, config=config
+    ) is None

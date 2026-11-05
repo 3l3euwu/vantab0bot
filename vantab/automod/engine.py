@@ -123,9 +123,10 @@ class AutoModEngine:
         """Why ``member`` is not checked in ``channel`` (``None`` = they are checked)."""
         if is_bot:
             return "bot"
-        if member.id == guild.owner_id or member.id in self.bot.owner_ids:
+        owner_ids = self.bot.owner_ids or ()
+        if member.id == guild.owner_id or member.id in owner_ids:
             return "owner"
-        if member.id in self.bot.settings.owner_ids:
+        if member.id in (self.bot.settings.owner_ids or ()):
             return "owner"
         if channel is not None and channel.id in config.exemptions.get("channel", set()):
             return "channel-exempt"

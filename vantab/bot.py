@@ -59,6 +59,9 @@ class Vantab(commands.Bot):
             activity=discord.Activity(type=discord.ActivityType.watching, name="over the server"),
             status=discord.Status.online,
         )
+        # discord.py leaves ``owner_ids`` as None when nobody configured it;
+        # normalise it so membership tests never explode on a fresh install.
+        self.owner_ids = frozenset(self.owner_ids or ())
         self.settings = settings
         self.db = Database(settings.database_path)
         self.session: aiohttp.ClientSession | None = None
