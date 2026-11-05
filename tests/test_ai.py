@@ -274,6 +274,64 @@ def test_cooldown_tracking() -> None:
     assert cog._cooling_down(1, 3) == 0.0
 
 
+def test_thinking_placeholder_exists() -> None:
+    """The placeholder text is referenced by answer_message; never let it vanish."""
+    from vantab.cogs import ai
+
+    assert isinstance(ai.THINKING, str) and ai.THINKING.strip()
+
+
+async def test_answer_failure_is_reported_instead_of_raised(monkeypatch) -> None:
+    """A NameError in the cog must not surface as 'Unhandled error in event on_message'."""
+    from types import SimpleNamespace
+
+    from vantab.cogs.ai import AI
+
+    cog = AI(_CogBot())  # type: ignore[arg-type]
+
+    async def boom(_message, _question):
+        raise NameError("name 'THINKING' is not defined")
+
+    monkeypatch.setattr(cog, "answer_message", boom)
+
+    sent: list[tuple[str, dict]] = []
+
+    class FakeMessage:
+        channel = SimpleNamespace(id=2)
+
+        async def reply(self, content: str, **kwargs) -> None:
+            sent.append((content, kwargs))
+
+    await cog._safe_answer(FakeMessage(), "salut")  # type: ignore[arg-type]
+
+    assert sent, "the failure should be reported to the user"
+    assert "broke" in sent[0][0]
+    assert sent[0][1]["mention_author"] is False
+
+
+async def test_answer_success_does_not_send_an_error(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from vantab.cogs.ai import AI
+
+    cog = AI(_CogBot())  # type: ignore[arg-type]
+    answered: list[str] = []
+
+    async def ok(_message, question):
+        answered.append(question)
+
+    monkeypatch.setattr(cog, "answer_message", ok)
+
+    class FakeMessage:
+        channel = SimpleNamespace(id=2)
+
+        async def reply(self, content: str, **kwargs) -> None:  # pragma: no cover
+            raise AssertionError("no error reply expected")
+
+    await cog._safe_answer(FakeMessage(), "salut")  # type: ignore[arg-type]
+    assert answered == ["salut"]
+
+
 # ------------------------------------------------------------------ persona
 
 

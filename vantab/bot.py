@@ -5,12 +5,14 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 from datetime import datetime
+from pathlib import Path
 
 import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
 
+from . import __version__
 from .ai import AIClient
 from .automod import AutoModEngine
 from .cache import MessageCache
@@ -174,6 +176,9 @@ class Vantab(commands.Bot):
 
     async def on_ready(self) -> None:
         self._ready_once = True
+        log.info(
+            "Vantab %s · code loaded from %s", __version__, Path(__file__).resolve().parent.parent
+        )
         log.info(
             "Logged in as %s (%s) · %s guilds · discord.py %s",
             self.user, getattr(self.user, "id", "?"), len(self.guilds), discord.__version__,

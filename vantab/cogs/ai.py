@@ -395,6 +395,28 @@ class AI(commands.Cog, name="AI"):
             except discord.HTTPException:
                 break
 
+    # --------------------------------------------------------------- safety net
+    async def _safe_answer(self, message: discord.Message, question: str) -> None:
+        """Answer without ever killing the gateway event.
+
+        Anything raised inside :meth:`answer_message` (a missing constant after
+        a partial edit, a stale module, an unexpected payload) used to bubble up
+        and log ``Unhandled error in event on_message`` with no feedback at all.
+        """
+        try:
+            await self.answer_message(message, question)
+            return
+        except Exception:
+            log.exception("AI answer failed in channel %s", getattr(message.channel, "id", "?"))
+        try:
+            await message.reply(
+                "⚠️ *Something broke while answering — the details are in the bot console.*",
+                mention_author=False,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except Exception:  # pragma: no cover - best effort notice
+            log.debug("Could not report the AI failure", exc_info=True)
+
     # ------------------------------------------------------------------ listener
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
@@ -429,7 +451,7 @@ class AI(commands.Cog, name="AI"):
         remaining = self._cooling_down(guild_id, message.author.id)
         if remaining > 0:
             return
-        await self.answer_message(message, question)
+        await self._safe_answer(message, question)
 
     # ------------------------------------------------------------------ commands
     @commands.hybrid_command(name="ask", aliases=["ai"], description="Ask Vantab anything.")
@@ -452,7 +474,7 @@ class AI(commands.Cog, name="AI"):
                 delete_after=6,
             )
             return
-        await self.answer_message(ctx.message, question)
+        await self._safe_answer(ctx.message, question)
 
     @app_commands.command(name="ask-private", description="Ask Vantab anything — only you see the answer.")
     @app_commands.describe(question="Your question — any topic, no filters.")
