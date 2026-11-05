@@ -209,7 +209,7 @@ class Vantab(commands.Bot):
             "competing": discord.ActivityType.competing,
         }
         activity = discord.Activity(
-            type=activity_types.get(self.settings.activity_type, discord.ActivityType.watching),
+            type=activity_types.get(self.settings.activity_type, discord.ActivityType.competing),
             name=text[:128] or "over the server",
         )
         try:

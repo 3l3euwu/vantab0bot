@@ -113,15 +113,15 @@ def panel_embed(guild: discord.Guild | None = None, *, staff_role: discord.Role 
     lines = [
         f"Need a hand in {server}?",
         "",
-        "🎫 Click **Open a ticket** below and describe your issue.",
-        "🔒 A private channel is created for you and the staff team.",
-        "📄 Closing a ticket archives a full transcript for the staff.",
+        "Click **Open a ticket** below and describe your issue.",
+        "A private channel is created for you and the staff team.",
+        "Closing a ticket archives a full transcript for the staff.",
         "",
         "One ticket at a time, please — never share passwords or 2FA codes.",
     ]
     if staff_role is not None:
         lines.append(f"\nStaff on duty: {staff_role.mention}")
-    embed = base_embed("\n".join(lines), title="🎫 Support tickets", colour=Brand.PRIMARY)
+    embed = base_embed("\n".join(lines), title="Support tickets", colour=Brand.PRIMARY)
     return embed
 
 
@@ -339,7 +339,7 @@ class TicketService:
             base_embed(
                 f"Ticket {channel.mention} opened by {user.mention} (`{user.id}`).\n"
                 f"**Subject:** {subject or '—'}",
-                title=f"🎫 Ticket #{ticket.number:04d} opened",
+                title=f"Ticket #{ticket.number:04d} opened",
                 colour=Brand.SUCCESS,
             ),
         )
@@ -377,7 +377,7 @@ class TicketService:
             f"**Subject:** {ticket.subject or '—'}\n"
             f"**Ticket:** #{ticket.number:04d}\n\n"
             "Use the buttons below to claim, close or archive this ticket.",
-            title="🎫 Ticket opened",
+            title="Ticket opened",
             colour=Brand.PRIMARY,
         )
         if details:
@@ -434,7 +434,7 @@ class TicketService:
                 f"Ticket **#{closed.number:04d}** closed by {closed_by.mention} (`{closed_by.id}`).\n"
                 f"**Opened by:** <@{closed.user_id}>\n"
                 f"**Reason:** {reason or '—'}",
-                title="🎫 Ticket closed",
+                title="Ticket closed",
                 colour=Brand.WARNING,
             ),
         )
@@ -453,7 +453,7 @@ class TicketService:
                     f"**Reason:** {ticket.close_reason or '—'}\n\n"
                     "The conversation is now read-only for the opener. Staff can delete the "
                     "channel once the transcript has been archived.",
-                    title="🔒 Ticket closed",
+                    title="Ticket closed",
                     colour=Brand.MUTED,
                 ),
                 view=TicketControlsView(self.bot),
@@ -490,7 +490,7 @@ class TicketService:
         file = discord.File(path, filename=path.name)
         embed = base_embed(
             f"Transcript for ticket **#{ticket.number:04d}** (opened by <@{ticket.user_id}>).",
-            title="📄 Ticket transcript",
+            title="Ticket transcript",
             colour=Brand.INFO,
         )
         if channel is not None:
@@ -501,7 +501,7 @@ class TicketService:
                 await opener.send(
                     embed=base_embed(
                         f"Here is the transcript of your ticket **#{ticket.number:04d}**.",
-                        title="📄 Your ticket transcript",
+                        title="Your ticket transcript",
                         colour=Brand.INFO,
                     ),
                     file=discord.File(path, filename=path.name),
