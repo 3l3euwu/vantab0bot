@@ -25,6 +25,30 @@ __all__ = ["Vantab"]
 
 log = logging.getLogger("vantab")
 
+
+def root_cause(error: BaseException) -> BaseException:
+    """Peel ``CommandInvokeError`` / ``HybridCommandError`` wrappers."""
+    seen: set[int] = set()
+    while id(error) not in seen:
+        seen.add(id(error))
+        for attribute in ("original", "wrapped"):
+            inner = getattr(error, attribute, None)
+            if isinstance(inner, BaseException):
+                error = inner
+                break
+        else:
+            break
+    return error
+
+
+def is_expired_interaction(error: BaseException) -> bool:
+    """True for the 404s Discord sends when we answered too late."""
+    root = root_cause(error)
+    if isinstance(root, discord.InteractionResponded):
+        return True
+    return isinstance(root, discord.NotFound) and getattr(root, "code", None) == 10062
+
+
 INITIAL_COGS = (
     "vantab.cogs.ai",
     "vantab.cogs.moderation",
@@ -268,6 +292,9 @@ class Vantab(commands.Bot):
     async def on_command_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
         if isinstance(error, commands.CommandNotFound):
             return
+        if is_expired_interaction(error):
+            log.debug("Interaction expired before %s answered", ctx.command)
+            return
         if isinstance(error, commands.CommandInvokeError) and error.original:
             original = error.original
             if isinstance(original, discord.Forbidden):
@@ -311,6 +338,9 @@ class Vantab(commands.Bot):
         self, interaction: discord.Interaction, error: app_commands.AppCommandError
     ) -> None:
         """Friendly errors for slash commands (including hybrid ones)."""
+        if is_expired_interaction(error):
+            log.debug("Interaction expired before the command answered")
+            return
         original = getattr(error, "original", error)
         if isinstance(original, commands.MissingPermissions):
             missing = ", ".join(p.replace("_", " ").title() for p in original.missing_permissions)

@@ -16,7 +16,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from ..checks import error_embed, hierarchy_error
+from ..checks import defer_if_interaction, error_embed, hierarchy_error
 from ..database import CaseEntry
 from ..ui.views import ConfirmView
 from ..utils.duration import DurationError, format_duration, format_seconds, parse_duration
@@ -666,6 +666,8 @@ class Moderation(commands.Cog, name="Moderation"):
             return
         channel = ctx.channel
         assert isinstance(channel, discord.TextChannel)
+        # Deleting up to 1000 messages easily exceeds the 3-second window.
+        await defer_if_interaction(ctx)
 
         def check(message: discord.Message) -> bool:
             if member is not None and message.author.id != member.id:

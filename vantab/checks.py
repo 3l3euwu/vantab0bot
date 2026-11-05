@@ -11,6 +11,7 @@ from .utils.embeds import Brand, base_embed
 
 __all__ = [
     "error_embed",
+    "defer_if_interaction",
     "success_embed",
     "warning_embed",
     "is_owner",
@@ -32,11 +33,31 @@ def warning_embed(message: str, *, title: str | None = None) -> discord.Embed:
     return base_embed(message, title=title, colour=Brand.WARNING)
 
 
+async def defer_if_interaction(ctx: commands.Context, *, ephemeral: bool = True) -> bool:
+    """Acknowledge a slash/hybrid invocation before doing slow work.
+
+    Discord gives an interaction three seconds to be acknowledged; bulk
+    operations (purging, loops of API calls) routinely take longer and then
+    fail with 404 / code 10062 "Unknown interaction". Returns ``True`` when a
+    defer happened. Prefix invocations are untouched.
+    """
+    interaction = getattr(ctx, "interaction", None)
+    if interaction is None:
+        return False
+    try:
+        if interaction.response.is_done():
+            return False
+        await interaction.response.defer(ephemeral=ephemeral)
+    except discord.HTTPException:  # already answered or token expired
+        return False
+    return True
+
+
 def is_owner() -> Callable:
     """Allow bot owners (and the application owner) through."""
 
     async def predicate(ctx: commands.Context) -> bool:
-        if ctx.author.id in getattr(ctx.bot, "owner_ids", set()):
+        if ctx.author.id in (getattr(ctx.bot, "owner_ids", None) or ()):
             return True
         if await ctx.bot.is_owner(ctx.author):
             return True
