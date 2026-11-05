@@ -18,6 +18,7 @@ from .checks import error_embed
 from .config import Settings
 from .database import Database, GuildSettings, utcnow
 from .persona import Persona, load_persona
+from .ui.tickets import TicketControlsView, TicketPanelView
 from .ui.views import VerifyView
 from .utils.embeds import Brand, base_embed
 
@@ -56,6 +57,7 @@ INITIAL_COGS = (
     "vantab.cogs.settings",
     "vantab.cogs.logging",
     "vantab.cogs.security",
+    "vantab.cogs.tickets",
     "vantab.cogs.utility",
     "vantab.cogs.tasks",
 )
@@ -115,8 +117,10 @@ class Vantab(commands.Bot):
             except Exception:
                 log.exception("Failed to load extension %s", extension)
 
-        # Persistent verification button (survives restarts).
+        # Persistent buttons (survive restarts).
         self.add_view(VerifyView(self))
+        self.add_view(TicketPanelView(self))
+        self.add_view(TicketControlsView(self))
         self.tree.on_error = self.on_app_command_error
 
         await self._sync_commands()

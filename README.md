@@ -26,13 +26,14 @@ throw at it with `~{your question}`.
 2. [The AI (`~{question}`)](#the-ai-question)
 3. [What "autonomous" means](#what-autonomous-means)
 4. [Auto-mod rules](#auto-mod-rules)
-5. [Commands](#commands)
-6. [Permissions Vantab needs](#permissions-vantab-needs)
-7. [Configuration](#configuration)
-8. [Deployment](#deployment)
-9. [Development](#development)
-10. [Project layout](#project-layout)
-11. [Troubleshooting](#troubleshooting)
+5. [Support tickets](#support-tickets)
+6. [Commands](#commands)
+7. [Permissions Vantab needs](#permissions-vantab-needs)
+8. [Configuration](#configuration)
+9. [Deployment](#deployment)
+10. [Development](#development)
+11. [Project layout](#project-layout)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -251,6 +252,39 @@ the owner, so compromised moderator accounts cannot abuse it.
 
 ---
 
+## Support tickets
+
+Members open a private channel in one click; staff claim it, answer, then close it —
+a full HTML transcript is archived and sent to the log channel and to the member.
+
+```bash
+~ticket setup #category @Staff #ticket-logs   # one-time (category optional)
+~ticket panel #support                        # the button members click
+~ticket open Payment issue                    # or open one without the panel
+~ticket claim                                  # take ownership (staff)
+~ticket add @helper                            # loop someone in
+~ticket close [reason]                         # archive + lock the channel
+~ticket transcript                             # HTML file, ephemeral
+~ticket list [open|closed] · ~ticket stats · ~ticket info
+~ticket max 3 · ~ticket disable / enable
+```
+
+- **Private by default.** `@everyone` loses access; only the opener, the staff
+  role and the bot can read the channel. Closing the ticket removes the opener's
+  write access while keeping the history for staff.
+- **Real transcripts.** A standalone HTML file (authors, timestamps, attachments)
+  is written to `data/transcripts/guild-<id>/ticket-0004.html`, sent to the
+  ticket log channel and DM'd to the opener.
+- **Buttons, not just commands.** Claim / Close / Transcript / Delete live in the
+  ticket channel and keep working after a restart (persistent views).
+- **Zero-config start.** With no category configured, the first ticket creates a
+  `Tickets` category automatically (needs **Manage Channels**).
+- **Per-member limits** (`~ticket max`), duplicate protection (one open ticket per
+  member by default) and a full audit trail in `~ticket list`.
+- Everything above also exists as `/ticket …`.
+
+---
+
 ## Commands
 
 Prefix: `~` (change per server with `~setprefix`). Every command also exists as a
@@ -393,7 +427,7 @@ inbound ports, webhooks or public URL.
 source .venv/bin/activate
 pip install -r requirements-dev.txt
 
-python -m pytest -q          # 182 tests
+python -m pytest -q          # 219 tests
 ruff check .                 # lint
 python bot.py                # run locally
 ```
@@ -416,6 +450,7 @@ vantab/
   ai.py                    OpenAI-compatible client (streaming, retries, vision)
   persona.py               persona files, style resolution, placeholders
   credentials.py           tkn.txt parsing (discord-token, provider, model, api-key…)
+  tickets.py               ticket service: channels, permissions, HTML transcripts
   checks.py                permission helpers and error embeds
   cache.py                 recent-message cache for delete/edit logs
   automod/
@@ -429,11 +464,13 @@ vantab/
     settings.py            per-server settings
     logging.py             audit logging
     security.py            anti-nuke, raid mode, verification
+    tickets.py             panel, open/close/claim, transcripts
     utility.py             help, info, tags
     tasks.py               background loops
   ui/views.py              confirmations, paginator, persistent verify button
+  ui/tickets.py            ticket panel, opening modal, in-channel controls
   utils/                   durations, embeds, text helpers
-tests/                     pytest suite (182 tests)
+tests/                     pytest suite (219 tests)
 docs/COMMANDS.md           full command reference
 ```
 

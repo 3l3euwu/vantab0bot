@@ -23,6 +23,7 @@ async def test_all_cogs_load(bot: Vantab) -> None:
         "Settings",
         "Logging",
         "Security",
+        "Tickets",
         "Utility",
         "BackgroundTasks",
     }
@@ -31,11 +32,14 @@ async def test_all_cogs_load(bot: Vantab) -> None:
 
 async def test_commands_registered(bot: Vantab) -> None:
     names = {command.name for command in bot.commands}
-    assert {"ban", "tempban", "banlist", "kick", "timeout", "warn", "purge", "ask", "help", "automod"} <= names
+    assert {
+        "ban", "tempban", "banlist", "kick", "timeout", "warn", "purge",
+        "ask", "help", "automod", "ticket",
+    } <= names
     assert len(names) >= 40
 
     app_names = {command.name for command in bot.tree.get_commands()}
-    assert {"ban", "ask", "automod", "antinuke", "verify", "help"} <= app_names
+    assert {"ban", "ask", "automod", "antinuke", "verify", "help", "ticket"} <= app_names
 
 
 async def test_groups_have_children(bot: Vantab) -> None:
@@ -51,6 +55,14 @@ async def test_groups_have_children(bot: Vantab) -> None:
     antinuke = bot.get_command("antinuke")
     assert antinuke is not None
     assert "whitelist" in {child.name for child in antinuke.commands}
+
+    ticket = bot.get_command("ticket")
+    assert ticket is not None
+    assert {
+        "setup", "panel", "open", "close", "claim", "unclaim",
+        "add", "remove", "rename", "transcript", "info", "list", "stats",
+        "max", "enable", "disable",
+    } <= {child.name for child in ticket.commands}
 
 
 async def test_ai_commands(bot: Vantab) -> None:

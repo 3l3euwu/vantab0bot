@@ -18,11 +18,12 @@ if TYPE_CHECKING:  # pragma: no cover
 
 log = "vantab.cogs.utility"
 
-CATEGORY_ORDER = ["AutoMod", "Moderation", "Security", "Settings", "AI", "Utility"]
+CATEGORY_ORDER = ["AutoMod", "Moderation", "Security", "Tickets", "Settings", "AI", "Utility"]
 CATEGORY_ICONS = {
     "AutoMod": "🛡️",
     "Moderation": "🔨",
     "Security": "🔐",
+    "Tickets": "🎫",
     "Settings": "⚙️",
     "AI": "🧠",
     "Utility": "🧰",

@@ -23,6 +23,7 @@ __all__ = [
     "RuleConfig",
     "WarningEntry",
     "CaseEntry",
+    "TicketEntry",
     "DEFAULT_ESCALATION",
     "ACTION_WEIGHTS",
 ]
@@ -67,6 +68,12 @@ CREATE TABLE IF NOT EXISTS guilds (
     ai_style            TEXT,
     warn_decay_days     INTEGER NOT NULL DEFAULT 30,
     verify_timeout_seconds INTEGER NOT NULL DEFAULT 600,
+    ticket_category_id  INTEGER,
+    ticket_staff_role_id INTEGER,
+    ticket_log_channel  INTEGER,
+    tickets_enabled     INTEGER NOT NULL DEFAULT 1,
+    ticket_max_open     INTEGER NOT NULL DEFAULT 1,
+    ticket_counter      INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -165,6 +172,24 @@ CREATE TABLE IF NOT EXISTS antinuke_events (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS tickets (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id      INTEGER NOT NULL,
+    channel_id    INTEGER NOT NULL UNIQUE,
+    number        INTEGER NOT NULL,
+    user_id       INTEGER NOT NULL,
+    subject       TEXT NOT NULL DEFAULT '',
+    status        TEXT NOT NULL DEFAULT 'open',
+    claimed_by    INTEGER,
+    created_at    TEXT NOT NULL,
+    closed_at     TEXT,
+    closed_by     INTEGER,
+    close_reason  TEXT NOT NULL DEFAULT '',
+    UNIQUE (guild_id, number)
+);
+CREATE INDEX IF NOT EXISTS idx_tickets_guild ON tickets (guild_id, status);
+CREATE INDEX IF NOT EXISTS idx_tickets_user ON tickets (guild_id, user_id, status);
+
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT
@@ -217,6 +242,12 @@ class GuildSettings:
     ai_style: str | None = None
     warn_decay_days: int = 30
     verify_timeout_seconds: int = 600
+    ticket_category_id: int | None = None
+    ticket_staff_role_id: int | None = None
+    ticket_log_channel: int | None = None
+    tickets_enabled: bool = True
+    ticket_max_open: int = 1
+    ticket_counter: int = 0
 
     @classmethod
     def from_row(cls, row: aiosqlite.Row) -> GuildSettings:
@@ -248,6 +279,12 @@ class GuildSettings:
             ai_style=data.get("ai_style"),
             warn_decay_days=data.get("warn_decay_days", 30) or 30,
             verify_timeout_seconds=data.get("verify_timeout_seconds", 600) or 600,
+            ticket_category_id=data.get("ticket_category_id"),
+            ticket_staff_role_id=data.get("ticket_staff_role_id"),
+            ticket_log_channel=data.get("ticket_log_channel"),
+            tickets_enabled=bool(data.get("tickets_enabled", 1)),
+            ticket_max_open=int(data.get("ticket_max_open", 1) or 1),
+            ticket_counter=int(data.get("ticket_counter", 0) or 0),
         )
 
 
@@ -328,6 +365,43 @@ class CaseEntry:
         )
 
 
+@dataclass(slots=True)
+class TicketEntry:
+    id: int
+    guild_id: int
+    channel_id: int
+    number: int
+    user_id: int
+    subject: str
+    status: str
+    claimed_by: int | None
+    created_at: datetime
+    closed_at: datetime | None
+    closed_by: int | None
+    close_reason: str
+
+    @property
+    def is_open(self) -> bool:
+        return self.status == "open"
+
+    @classmethod
+    def from_row(cls, row: aiosqlite.Row) -> TicketEntry:
+        return cls(
+            id=row["id"],
+            guild_id=row["guild_id"],
+            channel_id=row["channel_id"],
+            number=int(row["number"]),
+            user_id=row["user_id"],
+            subject=row["subject"] or "",
+            status=row["status"] or "open",
+            claimed_by=row["claimed_by"],
+            created_at=parse_iso(row["created_at"]) or utcnow(),
+            closed_at=parse_iso(row["closed_at"]),
+            closed_by=row["closed_by"],
+            close_reason=row["close_reason"] or "",
+        )
+
+
 class Database:
     """Thin async wrapper around the Vantab schema."""
 
@@ -351,7 +425,15 @@ class Database:
         """Add columns introduced after a database was first created."""
         rows = await self._fetchall("PRAGMA table_info(guilds)")
         columns = {row["name"] for row in rows}
-        additions = {"ai_style": "TEXT"}
+        additions = {
+            "ai_style": "TEXT",
+            "ticket_category_id": "INTEGER",
+            "ticket_staff_role_id": "INTEGER",
+            "ticket_log_channel": "INTEGER",
+            "tickets_enabled": "INTEGER NOT NULL DEFAULT 1",
+            "ticket_max_open": "INTEGER NOT NULL DEFAULT 1",
+            "ticket_counter": "INTEGER NOT NULL DEFAULT 0",
+        }
         for name, declaration in additions.items():
             if name not in columns:
                 await self.conn.execute(f"ALTER TABLE guilds ADD COLUMN {name} {declaration}")
@@ -423,6 +505,12 @@ class Database:
         "ai_style",
         "warn_decay_days",
         "verify_timeout_seconds",
+        "ticket_category_id",
+        "ticket_staff_role_id",
+        "ticket_log_channel",
+        "tickets_enabled",
+        "ticket_max_open",
+        "ticket_counter",
     }
 
     async def update_guild(self, guild_id: int, **fields: Any) -> GuildSettings:
@@ -873,6 +961,108 @@ class Database:
         cutoff = iso(utcnow() - timedelta(days=max(1, older_than_days)))
         cursor = await self._execute("DELETE FROM antinuke_events WHERE created_at < ?", (cutoff,))
         return cursor.rowcount
+
+    # ----------------------------------------------------------------- tickets
+    async def reserve_ticket_number(self, guild_id: int) -> int:
+        """Atomically hand out the next ticket number for a guild."""
+        await self.ensure_guild(guild_id)
+        async with self._lock:
+            await self.conn.execute(
+                "UPDATE guilds SET ticket_counter = ticket_counter + 1 WHERE guild_id = ?",
+                (guild_id,),
+            )
+            cursor = await self.conn.execute(
+                "SELECT ticket_counter FROM guilds WHERE guild_id = ?", (guild_id,)
+            )
+            row = await cursor.fetchone()
+            await cursor.close()
+            await self.conn.commit()
+        return int(row["ticket_counter"]) if row else 1
+
+    async def create_ticket(
+        self,
+        guild_id: int,
+        *,
+        channel_id: int,
+        user_id: int,
+        number: int,
+        subject: str = "",
+    ) -> TicketEntry:
+        await self._execute(
+            "INSERT INTO tickets (guild_id, channel_id, number, user_id, subject, status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, 'open', ?)",
+            (guild_id, channel_id, number, user_id, subject[:200], iso()),
+        )
+        entry = await self.ticket_for_channel(channel_id)
+        assert entry is not None
+        return entry
+
+    async def get_ticket(self, ticket_id: int) -> TicketEntry | None:
+        row = await self._fetchone("SELECT * FROM tickets WHERE id = ?", (ticket_id,))
+        return TicketEntry.from_row(row) if row else None
+
+    async def ticket_for_channel(self, channel_id: int) -> TicketEntry | None:
+        row = await self._fetchone("SELECT * FROM tickets WHERE channel_id = ?", (channel_id,))
+        return TicketEntry.from_row(row) if row else None
+
+    async def open_ticket_for(self, guild_id: int, user_id: int) -> TicketEntry | None:
+        row = await self._fetchone(
+            "SELECT * FROM tickets WHERE guild_id = ? AND user_id = ? AND status = 'open' "
+            "ORDER BY id DESC LIMIT 1",
+            (guild_id, user_id),
+        )
+        return TicketEntry.from_row(row) if row else None
+
+    async def count_open_tickets(self, guild_id: int, user_id: int | None = None) -> int:
+        if user_id is None:
+            row = await self._fetchone(
+                "SELECT COUNT(*) AS c FROM tickets WHERE guild_id = ? AND status = 'open'", (guild_id,)
+            )
+        else:
+            row = await self._fetchone(
+                "SELECT COUNT(*) AS c FROM tickets WHERE guild_id = ? AND status = 'open' AND user_id = ?",
+                (guild_id, user_id),
+            )
+        return int(row["c"]) if row else 0
+
+    async def list_tickets(
+        self, guild_id: int, *, status: str | None = None, limit: int = 25
+    ) -> list[TicketEntry]:
+        if status:
+            rows = await self._fetchall(
+                "SELECT * FROM tickets WHERE guild_id = ? AND status = ? ORDER BY number DESC LIMIT ?",
+                (guild_id, status, limit),
+            )
+        else:
+            rows = await self._fetchall(
+                "SELECT * FROM tickets WHERE guild_id = ? ORDER BY number DESC LIMIT ?",
+                (guild_id, limit),
+            )
+        return [TicketEntry.from_row(row) for row in rows]
+
+    async def claim_ticket(self, ticket_id: int, user_id: int | None) -> TicketEntry | None:
+        await self._execute("UPDATE tickets SET claimed_by = ? WHERE id = ?", (user_id, ticket_id))
+        return await self.get_ticket(ticket_id)
+
+    async def close_ticket(
+        self, ticket_id: int, *, closed_by: int | None = None, reason: str = ""
+    ) -> TicketEntry | None:
+        await self._execute(
+            "UPDATE tickets SET status = 'closed', closed_at = ?, closed_by = ?, close_reason = ? "
+            "WHERE id = ? AND status = 'open'",
+            (iso(), closed_by, reason[:500], ticket_id),
+        )
+        return await self.get_ticket(ticket_id)
+
+    async def ticket_stats(self, guild_id: int) -> dict[str, int]:
+        rows = await self._fetchall(
+            "SELECT status, COUNT(*) AS c FROM tickets WHERE guild_id = ? GROUP BY status", (guild_id,)
+        )
+        stats = {"open": 0, "closed": 0, "total": 0}
+        for row in rows:
+            stats[row["status"]] = int(row["c"])
+            stats["total"] += int(row["c"])
+        return stats
 
     # ------------------------------------------------------------------- meta
     async def set_meta(self, key: str, value: str) -> None:

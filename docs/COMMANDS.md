@@ -123,6 +123,32 @@ Crossing any limit strips the account's roles and bans it.
 
 ---
 
+## 🎫 Tickets
+
+| Command | Permissions | Description |
+| --- | --- | --- |
+| `~ticket` | everyone | Overview: status, category, staff role, counters. |
+| `~ticket panel [#channel]` | Manage Server | Post the panel with the **Open a ticket** button. |
+| `~ticket setup [#category] [@staff] [#log]` | Manage Server | Configure where tickets live and who handles them (creates the category if omitted). |
+| `~ticket open [subject]` | everyone | Open a ticket without the panel (one per member by default). |
+| `~ticket close [reason]` | opener / staff | Archive a transcript, lock the channel and mark the ticket closed. |
+| `~ticket claim` / `~ticket unclaim` | staff | Take or release ownership of the ticket. |
+| `~ticket add <member>` / `~ticket remove <member>` | staff | Give or revoke access for another member. |
+| `~ticket rename <name>` | staff | Rename the ticket channel. |
+| `~ticket transcript` | staff | Send yourself the HTML transcript (kept on disk too). |
+| `~ticket info` | staff | Opener, claimer, subject, timestamps. |
+| `~ticket list [open\|closed]` | Manage Server | Recent tickets with channel links. |
+| `~ticket stats` | Manage Server | Open / closed / total counters. |
+| `~ticket max <1-5>` | Manage Server | How many open tickets one member may have. |
+| `~ticket enable` / `~ticket disable` | Manage Server | Allow or block new tickets (existing ones keep working). |
+
+Ticket channels also carry persistent **Claim**, **Close**, **Transcript** and
+**Delete** buttons. Transcripts are HTML files saved under
+`data/transcripts/guild-<id>/`, mirrored to the ticket log channel and DM'd to
+the opener.
+
+---
+
 ## ⚙️ Settings
 
 | Command | Permissions | Description |
@@ -174,4 +200,6 @@ Crossing any limit strips the account's roles and bans it.
 | Kick / Ban Members | `kick`, `ban`, `unban`, `softban` |
 | Manage Channels | `slowmode`, `lock`, `unlock` |
 | Administrator | `clearwarns`, `lockdown`, `unlockdown`, `nuke`, anti-nuke, verification |
+| Manage Server | `ticket setup`, `ticket panel`, `ticket list`, `ticket stats`, `ticket max`, `ticket enable/disable` |
+| Ticket staff | `ticket claim/unclaim`, `ticket add/remove`, `ticket rename`, `ticket transcript`, `ticket info` |
 | Bot owner | `aistatus` |
