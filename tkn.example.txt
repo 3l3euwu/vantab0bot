@@ -1,0 +1,43 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Vantab credentials — copy this file to `tkn.txt` and fill it in.
+#
+#      cp tkn.example.txt tkn.txt
+#
+#  `tkn.txt` is git-ignored. Values here take precedence over `.env`.
+#  One `key=value` per line; `#` starts a comment.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Discord bot token (Developer Portal → Bot → Reset Token)
+discord-token=MTU2NzY3NTYzMjU0Mjk0MTMyNA.GoCFMo.8als5k5V1szCKMrH8Vx3OnJxG6ruVC55aKnQxk
+
+# AI provider: gemini | openai | openrouter | groq | together | mistral |
+#              deepinfra | ollama | lmstudio | custom
+provider=gemini
+
+# Model id. Gemini 3.1 Flash-Lite is the default.
+model=gemini-3.1-flash-lite
+
+# Automatic fallbacks: when the model above is saturated (503/429) Vantab
+# switches to the next one for 5 minutes instead of failing.
+# fallback-models=gemini-3.1-flash,gemini-2.5-flash,gemini-2.5-flash-lite
+
+# API key for the provider (Google AI Studio key for Gemini).
+api-key=AQ.Ab8RN6Itjw1Hn1k1Op5rBc1Qr3Fxp3_wBgLlux1Pj8kt9gLC5A
+
+# ── optional ─────────────────────────────────────────────────────────────────
+# Override the endpoint (filled in automatically from the provider preset).
+# base-url=https://generativelanguage.googleapis.com/v1beta/openai
+
+# Persona style from prompts/persona.json (elee | normal).
+# style=elee
+
+# Opening line sent at the start of a new conversation.
+# greeting=hewoooooo~ cha vaaa~ ? :3
+
+# Generation settings.
+# temperature=0.8
+# max-tokens=1200
+
+# Bot owners (comma separated Discord user IDs) and default prefix.
+# owner-ids=
+# prefix=~

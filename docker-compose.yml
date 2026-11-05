@@ -1,0 +1,17 @@
+services:
+  vantab:
+    build: .
+    container_name: vantab
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      # Uncomment to use tkn.txt inside the container (leave .env for the rest):
+      # - ./tkn.txt:/app/tkn.txt:ro
+    # Vantab needs no inbound ports.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

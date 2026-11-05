@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vantab"
+version = "1.0.0"
+description = "Vantab — autonomous Discord moderation bot with an unrestricted AI"
+requires-python = ">=3.10"
+dependencies = [
+    "discord.py>=2.4,<3",
+    "aiohttp>=3.9",
+    "aiosqlite>=0.20",
+    "python-dotenv>=1.0",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [".venv", "data"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = ["E501", "B008", "SIM105", "SIM108"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "B011"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
