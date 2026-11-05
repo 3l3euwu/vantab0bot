@@ -20,6 +20,7 @@ from discord.ext import commands, tasks
 from ..checks import error_embed
 from ..ui.views import VerifyView
 from ..utils.embeds import Brand, base_embed
+from ..utils.locks import apply_lock, is_locked, snapshot_lock
 from ..utils.text import truncate
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -65,7 +66,7 @@ class Security(commands.Cog, name="Security"):
         self._seen_entries: dict[int, deque[int]] = defaultdict(lambda: deque(maxlen=500))
         self._last_audit: dict[int, discord.utils.UTC] = {}
         self._raid_active: set[int] = set()
-        self._raid_locks: dict[int, dict[int, bool | None]] = {}
+        self._raid_locks: dict[int, dict[int, dict[str, bool | None]]] = {}
         self._verify_tasks: set[asyncio.Task] = set()
 
     async def cog_load(self) -> None:
@@ -307,13 +308,13 @@ class Security(commands.Cog, name="Security"):
         self.bot.invalidate_settings(guild.id)
 
         locked = 0
-        state: dict[int, bool | None] = {}
+        state: dict[int, dict[str, bool | None]] = {}
         for channel in guild.text_channels:
             overwrite = channel.overwrites_for(guild.default_role)
-            state[channel.id] = overwrite.send_messages
-            if overwrite.send_messages is False:
+            state[channel.id] = snapshot_lock(overwrite)
+            if is_locked(overwrite):
                 continue
-            overwrite.send_messages = False
+            apply_lock(overwrite, locked=True)
             try:
                 await channel.set_permissions(
                     guild.default_role, overwrite=overwrite, reason="Vantab raid mode"
@@ -480,9 +481,13 @@ class Security(commands.Cog, name="Security"):
         for channel in guild.text_channels:
             overwrite = channel.overwrites_for(guild.default_role)
             previous = state_map.get(channel.id)
-            if channel.id not in state_map and overwrite.send_messages is not False:
-                continue
-            overwrite.send_messages = previous
+            if previous is None:
+                if not is_locked(overwrite):
+                    continue
+                apply_lock(overwrite, locked=False)
+            else:
+                for permission, value in previous.items():
+                    setattr(overwrite, permission, value)
             try:
                 await channel.set_permissions(
                     guild.default_role, overwrite=overwrite, reason="Vantab raid mode off"
