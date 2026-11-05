@@ -25,7 +25,6 @@ if TYPE_CHECKING:  # pragma: no cover
 log = logging.getLogger("vantab.cogs.ai")
 
 MENTION_RE = re.compile(r"<@!?\d+>")
-THINKING = "💭 *thinking…*"
 STREAM_INTERVAL = 1.4
 DISPLAY_LIMIT = 1900
 
