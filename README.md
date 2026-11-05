@@ -151,6 +151,11 @@ Features:
 - **Custom persona.** `~setaisystem <prompt>` sets a server-specific system
   prompt (placeholders work there too); `~setaisystem reset` restores the
   persona style.
+- **Never stuck on a saturated model.** If Gemini answers `503 UNAVAILABLE` or
+  `429`, Vantab immediately retries on the next model of its fallback chain
+  (`ai_fallback_models`, preset for Gemini: 3.1 Flash → 2.5 Flash → 2.5
+  Flash-Lite) and stays there for 5 minutes before trying the primary again.
+  `~aistatus` shows which model is live.
 - **Gemini 3.1 Flash-Lite by default.** Google's OpenAI-compatible endpoint
   (`https://generativelanguage.googleapis.com/v1beta/openai`) with the
   `gemini-3.1-flash-lite` model — 1M-token context, fast and cheap.
@@ -353,6 +358,7 @@ All settings are environment variables (`.env` or the process environment).
 | `AI_BASE_URL` | provider default | OpenAI-compatible endpoint. |
 | `AI_API_KEY` | — | Provider key (not needed for local models). Use `api-key=` in `tkn.txt` instead. |
 | `AI_MODEL` | `gemini-3.1-flash-lite` | Model identifier. |
+| `AI_FALLBACK_MODELS` | preset | Comma-separated models tried, in order, when the primary is overloaded. Empty to disable. |
 | `AI_TEMPERATURE` | `0.8` | 0 – 2. |
 | `AI_MAX_TOKENS` | `1200` | Max response length. |
 | `AI_TIMEOUT` | `120` | Request timeout in seconds. |
@@ -427,7 +433,7 @@ inbound ports, webhooks or public URL.
 source .venv/bin/activate
 pip install -r requirements-dev.txt
 
-python -m pytest -q          # 219 tests
+python -m pytest -q          # 229 tests
 ruff check .                 # lint
 python bot.py                # run locally
 ```
@@ -470,7 +476,7 @@ vantab/
   ui/views.py              confirmations, paginator, persistent verify button
   ui/tickets.py            ticket panel, opening modal, in-channel controls
   utils/                   durations, embeds, text helpers
-tests/                     pytest suite (219 tests)
+tests/                     pytest suite (229 tests)
 docs/COMMANDS.md           full command reference
 ```
 
@@ -489,6 +495,7 @@ docs/COMMANDS.md           full command reference
 | Slash commands missing | Wait up to an hour for global sync, or set `DEV_GUILD_ID` for instant sync. Re-invite with the `applications.commands` scope. |
 | AI says "backend returned 401" | Wrong key. Check `api-key=` in `tkn.txt` (Gemini keys come from [Google AI Studio](https://aistudio.google.com/apikey)). |
 | AI says "backend returned 403" | The key lacks access to that model, or the Gemini API is not enabled for the project. |
+| `503 ... high demand` | Handled automatically: Vantab switches to `ai_fallback_models` for 5 minutes. Add more models in `tkn.txt` (`fallback-models=a,b`) if the whole chain is busy. |
 | AI says "backend returned 404" | Model name or base URL is wrong. Check the provider's docs. |
 | Auto-mod does nothing | `~automod status`; check the channel isn't exempt and that Vantab has **Manage Messages**. |
 | "That member's highest role is above mine" | Drag Vantab's role higher in **Server Settings → Roles**. |

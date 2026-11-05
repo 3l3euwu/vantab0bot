@@ -12,6 +12,9 @@ Design notes
 * Streaming is supported (SSE) and degrades gracefully to a single request if
   the provider does not stream.
 * Rate limits and transient 5xx errors are retried with exponential backoff.
+* When a model is saturated (``503``, ``429`` …) the client rotates to the next
+  model of ``ai_fallback_models`` for a cooling-off period instead of hammering
+  the overloaded one.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ import json
 import logging
 from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from time import monotonic
 from typing import Any
 
 import aiohttp
@@ -35,6 +39,13 @@ ChatMessage = dict[str, Any]
 
 #: Models that reject ``max_tokens`` / ``temperature`` in favour of newer params.
 _REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5", "gpt5")
+
+#: Statuses worth retrying, and the subset that means "this model is unavailable".
+RETRYABLE_STATUSES = frozenset({408, 409, 425, 429, 500, 502, 503, 504, 529})
+FALLBACK_STATUSES = frozenset({429, 500, 502, 503, 504, 529})
+
+#: How long we stay on a fallback model before trying the primary one again.
+FALLBACK_COOLDOWN_SECONDS = 300.0
 
 
 class AIError(RuntimeError):
@@ -130,6 +141,50 @@ class AIClient:
     settings: Settings
     session: aiohttp.ClientSession
     max_retries: int = 2
+    model_index: int = 0
+    _fallback_until: float | None = None
+
+    # ------------------------------------------------------------------ models
+    @property
+    def models(self) -> tuple[str, ...]:
+        """Primary model followed by the configured fallbacks (deduplicated)."""
+        chain = [self.settings.ai_model, *self.settings.ai_fallback_models]
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for name in chain:
+            candidate = (name or "").strip()
+            if candidate and candidate.lower() not in seen:
+                seen.add(candidate.lower())
+                ordered.append(candidate)
+        return tuple(ordered) or ("",)
+
+    @property
+    def model(self) -> str:
+        """Model used for the next request (falls back to the primary after a cooldown)."""
+        chain = self.models
+        if self._fallback_until is not None and monotonic() >= self._fallback_until:
+            if self.model_index:
+                log.info("AI: cooldown elapsed — retrying primary model %s", chain[0])
+            self.model_index = 0
+            self._fallback_until = None
+        return chain[min(self.model_index, len(chain) - 1)]
+
+    def switch_model(self, reason: str = "") -> str | None:
+        """Move to the next model in the chain; ``None`` when it is exhausted."""
+        chain = self.models
+        if self.model_index + 1 >= len(chain):
+            return None
+        previous = chain[self.model_index]
+        self.model_index += 1
+        self._fallback_until = monotonic() + FALLBACK_COOLDOWN_SECONDS
+        log.warning(
+            "AI: %s is unavailable (%s) — switching to %s for %d min",
+            previous,
+            reason or "overloaded",
+            chain[self.model_index],
+            int(FALLBACK_COOLDOWN_SECONDS // 60),
+        )
+        return chain[self.model_index]
 
     @property
     def endpoint(self) -> str:
@@ -154,7 +209,7 @@ class AIClient:
         max_tokens: int | None = None,
         extra: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        model = self.settings.ai_model
+        model = self.model
         payload: dict[str, Any] = {
             "model": model,
             "messages": list(messages),
@@ -178,21 +233,24 @@ class AIClient:
     async def _request(
         self, payload: dict[str, Any], *, stream: bool
     ) -> aiohttp.ClientResponse:
-        """POST with retries; returns an open response object the caller closes."""
+        """POST with retries **and** model fallback; returns an open response."""
         delay = 1.5
-        last_error: Exception | None = None
-        for attempt in range(self.max_retries + 1):
+        attempt = 0
+        switches = 0
+        while True:
+            model = self.model
+            body = {**payload, "model": model}
             try:
                 response = await self.session.post(
                     self.endpoint,
-                    json=payload,
+                    json=body,
                     headers=self.headers(),
                     timeout=aiohttp.ClientTimeout(total=self.settings.ai_timeout),
                 )
             except (TimeoutError, aiohttp.ClientError) as exc:
-                last_error = exc
                 if attempt >= self.max_retries:
                     raise AIError(f"Could not reach the AI backend: {exc}") from exc
+                attempt += 1
                 log.warning("AI request failed (%s), retrying in %.1fs", exc, delay)
                 await asyncio.sleep(delay)
                 delay *= 2
@@ -201,22 +259,33 @@ class AIClient:
             if response.status in {200, 201}:
                 return response
 
-            body = await response.text()
-            if response.status in {408, 409, 425, 429, 500, 502, 503, 504, 529} and attempt < self.max_retries:
+            body_text = await response.text()
+            response.release()
+
+            # A saturated model will not recover in two seconds: move on.
+            if response.status in FALLBACK_STATUSES and switches < len(self.models) - 1:
+                new_model = self.switch_model(f"HTTP {response.status}")
+                if new_model is not None:
+                    switches += 1
+                    attempt = 0
+                    delay = 1.5
+                    log.warning(
+                        "AI backend %s for %s — retrying with %s", response.status, model, new_model
+                    )
+                    continue
+
+            if response.status in RETRYABLE_STATUSES and attempt < self.max_retries:
                 retry_after = response.headers.get("Retry-After")
                 wait = delay
                 if retry_after and retry_after.replace(".", "", 1).isdigit():
                     wait = min(float(retry_after), 20.0)
-                log.warning("AI backend %s (%s), retrying in %.1fs", response.status, body[:200], wait)
-                response.release()
+                attempt += 1
+                log.warning("AI backend %s (%s), retrying in %.1fs", response.status, body_text[:200], wait)
                 await asyncio.sleep(wait)
                 delay *= 2
                 continue
 
-            response.release()
-            raise AIError(_describe_error(response.status, body), status=response.status)
-
-        raise AIError(f"AI backend unavailable: {last_error}")
+            raise AIError(_describe_error(response.status, body_text), status=response.status)
 
     async def complete(self, messages: Sequence[ChatMessage], **kwargs: Any) -> str:
         """Non-streaming completion."""

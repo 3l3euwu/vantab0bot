@@ -34,6 +34,7 @@ def _clear(monkeypatch) -> None:
         "AI_EXTRA_HEADERS",
         "AI_BASE_URL",
         "AI_VISION",
+        "AI_FALLBACK_MODELS",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -256,3 +257,38 @@ def test_environment_token_beats_legacy_token_file(monkeypatch, tmp_path) -> Non
     (tmp_path / "token.txt").write_text("legacy-token\n", encoding="utf-8")
 
     assert Settings.load().token == "env-token"
+
+
+def test_gemini_preset_ships_fallbacks(monkeypatch, tmp_path) -> None:
+    _clear(monkeypatch)
+    monkeypatch.setattr("vantab.config.BASE_DIR", tmp_path)
+    (tmp_path / "tkn.txt").write_text(
+        "discord-token=t\nprovider=gemini\napi-key=k\n", encoding="utf-8"
+    )
+    settings = Settings.load()
+    assert settings.ai_model == "gemini-3.1-flash-lite"
+    assert settings.ai_fallback_models
+    assert "gemini-2.5-flash" in settings.ai_fallback_models
+    assert settings.ai_model not in settings.ai_fallback_models
+
+
+def test_fallback_models_from_environment(monkeypatch, tmp_path) -> None:
+    _clear(monkeypatch)
+    monkeypatch.setattr("vantab.config.BASE_DIR", tmp_path)
+    monkeypatch.setenv("DISCORD_TOKEN", "t")
+    monkeypatch.setenv("AI_MODEL", "primary")
+    monkeypatch.setenv("AI_FALLBACK_MODELS", "backup-a, backup-b; primary")
+    settings = Settings.load()
+    assert settings.ai_fallback_models == ("backup-a", "backup-b")
+
+
+def test_fallback_models_from_tkn_txt_win(monkeypatch, tmp_path) -> None:
+    _clear(monkeypatch)
+    monkeypatch.setattr("vantab.config.BASE_DIR", tmp_path)
+    monkeypatch.setenv("AI_FALLBACK_MODELS", "env-model")
+    (tmp_path / "tkn.txt").write_text(
+        "discord-token=t\nmodel=main\nfallback-models=one, two\n", encoding="utf-8"
+    )
+    settings = Settings.load()
+    assert settings.ai_model == "main"
+    assert settings.ai_fallback_models == ("one", "two")

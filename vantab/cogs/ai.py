@@ -490,7 +490,17 @@ class AI(commands.Cog, name="AI"):
         settings = self.bot.settings
         embed = base_embed(colour=Brand.PRIMARY, title="AI backend")
         embed.add_field(name="Provider", value=f"`{settings.ai_provider}`", inline=True)
-        embed.add_field(name="Model", value=f"`{settings.ai_model}`", inline=True)
+        active_model = self.client.model
+        model_value = f"`{active_model}`"
+        if active_model != settings.ai_model:
+            model_value += f"\n⚠️ fallback — primary: `{settings.ai_model}`"
+        embed.add_field(name="Model", value=model_value, inline=True)
+        if settings.ai_fallback_models:
+            embed.add_field(
+                name="Fallbacks",
+                value=" → ".join(f"`{name}`" for name in settings.ai_fallback_models),
+                inline=False,
+            )
         embed.add_field(name="Base URL", value=f"`{settings.ai_base_url}`", inline=False)
         embed.add_field(
             name="Credentials",

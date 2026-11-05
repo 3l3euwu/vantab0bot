@@ -317,3 +317,75 @@ def test_greeting_only_on_fresh_conversation() -> None:
     # Never double-prefix when the model already greets.
     already = cog._apply_greeting("hewoooooo~ cha vaaa~ ? :3 oui~", fresh=True, user_name="a")
     assert already.count("hewoooooo~") == 1
+
+
+# ------------------------------------------------------------- model fallback
+
+
+async def test_switches_model_on_503(monkeypatch) -> None:
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", no_sleep)
+    first = FakeResponse(
+        status=503,
+        body=b'{"error": {"code": 503, "status": "UNAVAILABLE", "message": "high demand"}}',
+    )
+    second = FakeResponse(json_data={"choices": [{"message": {"content": "ok"}}]})
+    session = FakeSession([first, second])
+    settings = make_settings(ai_model="primary", ai_fallback_models=("backup",))
+    client = AIClient(settings, session)  # type: ignore[arg-type]
+
+    assert await client.complete([{"role": "user", "content": "hi"}]) == "ok"
+    assert [call["json"]["model"] for call in session.calls] == ["primary", "backup"]
+    assert client.model == "backup"
+    assert client.model_index == 1
+    assert first.released
+
+
+async def test_fallback_chain_is_exhausted(monkeypatch) -> None:
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", no_sleep)
+    responses = [FakeResponse(status=503, body=b"busy") for _ in range(4)]
+    session = FakeSession(responses)
+    settings = make_settings(ai_model="primary", ai_fallback_models=("backup",))
+    client = AIClient(settings, session)  # type: ignore[arg-type]
+
+    with pytest.raises(AIError) as excinfo:
+        await client.complete([{"role": "user", "content": "hi"}])
+    assert excinfo.value.status == 503
+    models = [call["json"]["model"] for call in session.calls]
+    assert models[0] == "primary"
+    assert set(models[1:]) == {"backup"}
+
+
+def test_switch_model_without_fallbacks() -> None:
+    client = AIClient(make_settings(ai_model="solo"), FakeSession([]))  # type: ignore[arg-type]
+    assert client.models == ("solo",)
+    assert client.switch_model("busy") is None
+    assert client.model_index == 0
+
+
+def test_fallback_cooldown_returns_to_primary(monkeypatch) -> None:
+    clock = {"now": 1_000.0}
+    monkeypatch.setattr("vantab.ai.monotonic", lambda: clock["now"])
+    client = AIClient(
+        make_settings(ai_model="primary", ai_fallback_models=("backup",)), FakeSession([])  # type: ignore[arg-type]
+    )
+    assert client.switch_model("503") == "backup"
+    assert client.model == "backup"
+
+    clock["now"] += 301
+    assert client.model == "primary"
+    assert client.model_index == 0
+
+
+def test_build_payload_uses_active_model() -> None:
+    client = AIClient(
+        make_settings(ai_model="primary", ai_fallback_models=("backup",)), FakeSession([])  # type: ignore[arg-type]
+    )
+    client.model_index = 1
+    payload = client.build_payload([{"role": "user", "content": "x"}], stream=False)
+    assert payload["model"] == "backup"

@@ -181,10 +181,12 @@ class Vantab(commands.Bot):
         log.info(
             "AI: provider=%s model=%s endpoint=%s (%s)",
             self.settings.ai_provider,
-            self.settings.ai_model,
+            self.ai.model if self.ai is not None else self.settings.ai_model,
             self.settings.ai_base_url,
             f"credentials: {self.settings.credentials_file}" if self.settings.credentials_file else "environment",
         )
+        if self.settings.ai_fallback_models:
+            log.info("AI fallbacks: %s", " → ".join(self.settings.ai_fallback_models))
         for guild in self.guilds:
             try:
                 await self.db.ensure_guild(guild.id)

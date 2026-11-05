@@ -76,6 +76,13 @@ _KEY_ALIASES: dict[str, str] = {
     "model-name": "model",
     "modelname": "model",
     "gemini-model": "model",
+    # Automatic fallback models (used when the primary is overloaded)
+    "fallback-models": "fallback_models",
+    "fallbackmodels": "fallback_models",
+    "fallback": "fallback_models",
+    "fallbacks": "fallback_models",
+    "backup-models": "fallback_models",
+    "model-fallbacks": "fallback_models",
     # Endpoint
     "base-url": "base_url",
     "baseurl": "base_url",
@@ -112,6 +119,7 @@ _KNOWN = {
     "provider",
     "api_key",
     "model",
+    "fallback_models",
     "base_url",
     "style",
     "greeting",
@@ -206,6 +214,7 @@ class Credentials:
     provider: str | None = None
     api_key: str | None = None
     model: str | None = None
+    fallback_models: tuple[str, ...] = ()
     base_url: str | None = None
     style: str | None = None
     greeting: str | None = None
@@ -221,6 +230,11 @@ class Credentials:
         owners = tuple(
             int(chunk) for chunk in re.split(r"[,;\s]+", data.get("owner_ids", "")) if chunk.isdigit()
         )
+        fallbacks = tuple(
+            chunk.strip()
+            for chunk in re.split(r"[,;\s]+", data.get("fallback_models", ""))
+            if chunk.strip()
+        )
         known = {key: value for key, value in data.items() if key in _KNOWN}
         extra = {key: value for key, value in data.items() if key not in _KNOWN}
         return cls(
@@ -228,6 +242,7 @@ class Credentials:
             provider=known.get("provider"),
             api_key=known.get("api_key"),
             model=known.get("model"),
+            fallback_models=fallbacks,
             base_url=known.get("base_url"),
             style=known.get("style"),
             greeting=known.get("greeting"),
@@ -281,6 +296,7 @@ def credentials_summary(credentials: Credentials | None) -> dict[str, Any]:
         "file": str(credentials.source) if credentials.source else None,
         "provider": credentials.provider,
         "model": credentials.model,
+        "fallback_models": list(credentials.fallback_models),
         "style": credentials.style,
         "has_token": bool(credentials.token),
         "has_api_key": bool(credentials.api_key),

@@ -28,6 +28,8 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
     "gemini": {
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
         "model": "gemini-3.1-flash-lite",
+        # Used automatically when the primary model is overloaded (503/429).
+        "fallbacks": "gemini-3.1-flash,gemini-2.5-flash,gemini-2.5-flash-lite",
     },
     "openai": {"base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
     "openrouter": {"base_url": "https://openrouter.ai/api/v1", "model": "openai/gpt-4o-mini"},
@@ -149,6 +151,7 @@ class Settings:
     ai_style: str = "elee"
     ai_greeting: str | None = None
     credentials_file: Path | None = None
+    ai_fallback_models: tuple[str, ...] = ()
 
     @property
     def persona(self) -> Persona:
@@ -294,6 +297,18 @@ class Settings:
             or _env("AI_MODEL", preset["model"])
             or preset["model"]
         )
+        fallbacks_raw = (
+            (",".join(credentials.fallback_models) if credentials and credentials.fallback_models else None)
+            or _env("AI_FALLBACK_MODELS")
+            or preset.get("fallbacks", "")
+            or ""
+        )
+        fallbacks: list[str] = []
+        for chunk in fallbacks_raw.replace(";", ",").split(","):
+            name = chunk.strip()
+            if name and name.lower() != model.strip().lower() and name not in fallbacks:
+                fallbacks.append(name)
+
         greeting = (credentials.greeting if credentials else None) or _env("AI_GREETING")
         prefix_value = (
             (credentials.prefix if credentials else None)
@@ -335,6 +350,7 @@ class Settings:
             ai_style=style,
             ai_greeting=greeting,
             credentials_file=credentials_path if credentials else None,
+            ai_fallback_models=tuple(fallbacks),
         )
 
     def as_public_dict(self) -> dict[str, Any]:
@@ -344,6 +360,7 @@ class Settings:
             "ai_enabled": self.ai_enabled,
             "ai_provider": self.ai_provider,
             "ai_model": self.ai_model,
+            "ai_fallback_models": list(self.ai_fallback_models),
             "ai_base_url": self.ai_base_url,
             "ai_stream": self.ai_stream,
             "ai_vision": self.ai_vision,
