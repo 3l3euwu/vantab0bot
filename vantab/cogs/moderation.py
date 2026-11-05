@@ -6,11 +6,13 @@ mirrored to the moderation log channel.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import discord
 from discord import app_commands
@@ -21,6 +23,7 @@ from ..database import CaseEntry
 from ..ui.views import ConfirmView
 from ..utils.duration import DurationError, format_duration, format_seconds, parse_duration
 from ..utils.embeds import Brand, base_embed, mod_action
+from ..utils.locks import LOCK_PERMISSIONS, apply_lock, is_locked, snapshot_lock
 from ..utils.text import truncate
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -29,6 +32,18 @@ if TYPE_CHECKING:  # pragma: no cover
 log = logging.getLogger("vantab.cogs.moderation")
 
 MAX_PURGE = 1000
+
+
+@dataclass(slots=True)
+class LockOutcome:
+    """What a lock/unlock actually changed."""
+
+    roles: list[discord.Role] = field(default_factory=list)
+    admins: list[discord.Role] = field(default_factory=list)
+    threads: int = 0
+
+    def __bool__(self) -> bool:
+        return bool(self.roles or self.threads)
 
 _PURGE_FLAG_RE = re.compile(r"(?:^|\s)--purge\s+(\d{1,2})\s*", re.IGNORECASE)
 
@@ -48,8 +63,8 @@ class Moderation(commands.Cog, name="Moderation"):
 
     def __init__(self, bot: Vantab) -> None:
         self.bot = bot
-        #: channel_id -> previous send_messages override, used by ~lockdown
-        self._locks: dict[int, dict[int, bool | None]] = {}
+        #: channel_id -> snapshot of what a lock changed, so ~unlock can undo it
+        self._channel_locks: dict[int, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------ helpers
     async def _dm(
@@ -732,28 +747,144 @@ class Moderation(commands.Cog, name="Moderation"):
         )
 
     # --------------------------------------------------------------------- locks
-    async def _set_lock(
-        self, channel: discord.TextChannel, locked: bool, *, reason: str
-    ) -> list[discord.Role]:
-        targets: list[discord.Role] = [channel.guild.default_role]
-        for role in channel.guild.roles:
-            if role.is_default():
+    @staticmethod
+    def _lock_targets(channel: discord.TextChannel) -> list[discord.Role]:
+        """``@everyone`` plus every role whose allow could bypass the lock.
+
+        That second group is what makes a lock stick: a staff role granted
+        ``send_messages`` (or thread permissions) in this channel keeps talking
+        otherwise, no matter what ``@everyone`` says.
+        """
+        guild = channel.guild
+        targets: list[discord.Role] = [guild.default_role]
+        for role in guild.roles:
+            if role.is_default() or role.managed:
                 continue
             overwrite = channel.overwrites_for(role)
-            if overwrite.send_messages is True:
+            if any(getattr(overwrite, permission) is True for permission in LOCK_PERMISSIONS):
                 targets.append(role)
-        changed: list[discord.Role] = []
-        for role in targets:
-            overwrite = channel.overwrites_for(role)
-            overwrite.send_messages = False if locked else None
+        return targets
+
+    async def _set_threads_locked(
+        self, channel: discord.TextChannel, locked: bool, *, reason: str, only: Iterable[int] | None = None
+    ) -> list[int]:
+        """Lock/unlock the channel's active threads; returns the ids touched."""
+        changed: list[int] = []
+        for thread in list(getattr(channel, "threads", None) or []):
+            if only is not None and thread.id not in only:
+                continue
+            if getattr(thread, "locked", False) == locked:
+                continue
             try:
-                await channel.set_permissions(role, overwrite=overwrite, reason=reason)
-                changed.append(role)
+                await thread.edit(locked=locked, reason=reason)
+                changed.append(thread.id)
             except discord.HTTPException:
                 continue
         return changed
 
-    @commands.hybrid_command(name="lock", description="Prevent members from sending messages in a channel.")
+    async def _set_lock(
+        self, channel: discord.TextChannel, locked: bool, *, reason: str
+    ) -> LockOutcome:
+        guild = channel.guild
+        outcome = LockOutcome()
+
+        if locked:
+            # Re-locking must not overwrite the original snapshot: ~unlock has
+            # to know what the permissions looked like before the first lock.
+            snapshot = self._channel_locks.get(channel.id)
+            if snapshot is None:
+                snapshot = {"guild": guild.id, "roles": {}, "bot": None, "threads": []}
+
+            admins = [
+                role
+                for role in guild.roles
+                if role.permissions.administrator and not role.managed and not role.is_default()
+            ]
+            outcome.admins = admins
+
+            for role in self._lock_targets(channel):
+                overwrite = channel.overwrites_for(role)
+                previous = snapshot_lock(overwrite)
+                apply_lock(overwrite, locked=True)
+                try:
+                    await channel.set_permissions(role, overwrite=overwrite, reason=reason)
+                except discord.HTTPException:
+                    log.debug("Could not apply the lock to role %s in %s", role.id, channel.id)
+                    continue
+                snapshot["roles"].setdefault(role.id, previous)
+                outcome.roles.append(role)
+
+            # Administrators ignore channel overwrites, but the bot still needs
+            # to confirm the lock and unlock later — allow it explicitly.
+            me = getattr(guild, "me", None)
+            if me is not None:
+                bot_overwrite = channel.overwrites_for(me)
+                if not bot_overwrite.send_messages:
+                    snapshot["bot"] = snapshot.get("bot") or snapshot_lock(bot_overwrite)
+                    for permission in LOCK_PERMISSIONS:
+                        setattr(bot_overwrite, permission, True)
+                    with contextlib.suppress(discord.HTTPException):
+                        await channel.set_permissions(me, overwrite=bot_overwrite, reason=reason)
+
+            frozen = await self._set_threads_locked(channel, True, reason=reason)
+            snapshot["threads"] = list(dict.fromkeys([*snapshot.get("threads", []), *frozen]))
+            outcome.threads = len(frozen)
+            self._channel_locks[channel.id] = snapshot
+            return outcome
+
+        snapshot = self._channel_locks.pop(channel.id, None)
+        if snapshot is None:
+            # No memory (restart, or locked from the Discord UI): clear every
+            # deny we might have left behind, for @everyone and special roles.
+            roles = [guild.default_role, *(role for role in guild.roles if not role.is_default())]
+            for role in roles:
+                overwrite = channel.overwrites_for(role)
+                if not is_locked(overwrite):
+                    continue
+                apply_lock(overwrite, locked=False)
+                with contextlib.suppress(discord.HTTPException):
+                    await channel.set_permissions(role, overwrite=overwrite, reason=reason)
+                    outcome.roles.append(role)
+            outcome.threads = len(await self._set_threads_locked(channel, False, reason=reason))
+            return outcome
+
+        for role_id, previous in snapshot["roles"].items():
+            role = guild.get_role(role_id)
+            if role is None:
+                continue
+            overwrite = channel.overwrites_for(role)
+            for permission, value in previous.items():
+                setattr(overwrite, permission, value)
+            with contextlib.suppress(discord.HTTPException):
+                await channel.set_permissions(role, overwrite=overwrite, reason=reason)
+                outcome.roles.append(role)
+
+        me = getattr(guild, "me", None)
+        if me is not None and snapshot.get("bot"):
+            bot_overwrite = channel.overwrites_for(me)
+            for permission, value in snapshot["bot"].items():
+                setattr(bot_overwrite, permission, value)
+            with contextlib.suppress(discord.HTTPException):
+                await channel.set_permissions(me, overwrite=bot_overwrite, reason=reason)
+
+        outcome.threads = len(
+            await self._set_threads_locked(
+                channel, False, reason=reason, only=set(snapshot.get("threads") or ())
+            )
+        )
+        return outcome
+
+    @staticmethod
+    def _lock_summary(outcome: LockOutcome) -> str:
+        parts = [f"**{len(outcome.roles)}** role(s)"]
+        if outcome.threads:
+            parts.append(f"**{outcome.threads}** active thread(s)")
+        return " and ".join(parts)
+
+    @commands.hybrid_command(
+        name="lock",
+        description="Lock a channel: no messages, no new threads, no thread replies.",
+    )
     @app_commands.describe(channel="Channel to lock (defaults to this one)")
     @commands.guild_only()
     @commands.has_guild_permissions(manage_channels=True)
@@ -763,11 +894,17 @@ class Moderation(commands.Cog, name="Moderation"):
     ) -> None:
         target = channel or ctx.channel
         assert isinstance(target, discord.TextChannel)
-        roles = await self._set_lock(target, True, reason=f"Locked by {ctx.author}")
-        embed = base_embed(
-            f"🔒 Locked {target.mention} for **{len(roles)}** role(s).",
-            colour=Brand.WARNING,
+        outcome = await self._set_lock(target, True, reason=f"Locked by {ctx.author}")
+        description = (
+            f"🔒 Locked {target.mention} for {self._lock_summary(outcome)}.\n"
+            "Messages, thread creation and posting in threads are all blocked."
         )
+        if outcome.admins:
+            description += (
+                "\n\n⚠️ These roles have **Administrator** and always bypass channel "
+                "locks: " + ", ".join(role.mention for role in outcome.admins)
+            )
+        embed = base_embed(description, colour=Brand.WARNING)
         await ctx.reply(embed=embed, mention_author=False)
         await self.bot.log_mod_action(
             ctx.guild,
@@ -778,7 +915,7 @@ class Moderation(commands.Cog, name="Moderation"):
             ),
         )
 
-    @commands.hybrid_command(name="unlock", description="Allow members to talk in a channel again.")
+    @commands.hybrid_command(name="unlock", description="Undo a lock and restore the previous permissions.")
     @app_commands.describe(channel="Channel to unlock (defaults to this one)")
     @commands.guild_only()
     @commands.has_guild_permissions(manage_channels=True)
@@ -788,9 +925,9 @@ class Moderation(commands.Cog, name="Moderation"):
     ) -> None:
         target = channel or ctx.channel
         assert isinstance(target, discord.TextChannel)
-        roles = await self._set_lock(target, False, reason=f"Unlocked by {ctx.author}")
+        outcome = await self._set_lock(target, False, reason=f"Unlocked by {ctx.author}")
         embed = base_embed(
-            f"🔓 Unlocked {target.mention} for **{len(roles)}** role(s).",
+            f"🔓 Unlocked {target.mention} — {self._lock_summary(outcome)} restored.",
             colour=Brand.SUCCESS,
         )
         await ctx.reply(embed=embed, mention_author=False)
@@ -810,25 +947,23 @@ class Moderation(commands.Cog, name="Moderation"):
     async def lockdown(self, ctx: commands.Context) -> None:
         guild = ctx.guild
         assert guild is not None
-        state: dict[int, bool | None] = {}
         locked = 0
+        threads = 0
         for channel in guild.text_channels:
-            overwrite = channel.overwrites_for(guild.default_role)
-            state[channel.id] = overwrite.send_messages
-            if overwrite.send_messages is False:
+            if channel.id in self._channel_locks:
                 continue
-            overwrite.send_messages = False
             try:
-                await channel.set_permissions(
-                    guild.default_role, overwrite=overwrite, reason=f"Lockdown by {ctx.author}"
-                )
-                locked += 1
+                outcome = await self._set_lock(channel, True, reason=f"Lockdown by {ctx.author}")
             except discord.HTTPException:
                 continue
-        self._locks[guild.id] = state
+            if outcome:
+                locked += 1
+                threads += outcome.threads
         await ctx.reply(
             embed=base_embed(
-                f"🚨 **Lockdown engaged** — {locked} channel(s) locked. Use `~unlockdown` to restore.",
+                f"🚨 **Lockdown engaged** — {locked} channel(s) locked"
+                + (f", {threads} thread(s) frozen" if threads else "")
+                + ". Use `~unlockdown` to restore.",
                 colour=Brand.ERROR,
             ),
             mention_author=False,
@@ -849,23 +984,13 @@ class Moderation(commands.Cog, name="Moderation"):
     async def unlockdown(self, ctx: commands.Context) -> None:
         guild = ctx.guild
         assert guild is not None
-        state = self._locks.pop(guild.id, {})
         restored = 0
         for channel in guild.text_channels:
-            overwrite = channel.overwrites_for(guild.default_role)
-            previous = state.get(channel.id)
-            if previous is True:
-                overwrite.send_messages = True
-            elif previous is None and channel.id in state:
-                overwrite.send_messages = None
-            elif channel.id not in state and overwrite.send_messages is not False:
+            snapshot = self._channel_locks.get(channel.id)
+            if snapshot is None or snapshot.get("guild") != guild.id:
                 continue
-            else:
-                overwrite.send_messages = None
             try:
-                await channel.set_permissions(
-                    guild.default_role, overwrite=overwrite, reason=f"Unlockdown by {ctx.author}"
-                )
+                await self._set_lock(channel, False, reason=f"Unlockdown by {ctx.author}")
                 restored += 1
             except discord.HTTPException:
                 continue

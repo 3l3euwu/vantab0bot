@@ -52,10 +52,10 @@ starts a new conversation with `hewoooooo~ cha vaaa~ ? :3`. Placeholders
 | `~clearwarns <member>` | Administrator | Remove every warning. |
 | `~purge <amount> [member] [contains]` | Manage Messages | Bulk delete 1–1000 messages (alias: `clear`). |
 | `~slowmode [duration]` | Manage Channels | Set channel slowmode (`off` to disable). |
-| `~lock [channel]` | Manage Channels | Prevent members from talking. |
-| `~unlock [channel]` | Manage Channels | Undo `~lock`. |
-| `~lockdown` | Administrator | Lock every text channel. |
-| `~unlockdown` | Administrator | Restore channels locked by lockdown. |
+| `~lock [channel]` | Manage Channels | Lock a channel: messages **and** threads (no new threads, no replies in existing ones). Roles allowed in the channel are locked too; active threads are frozen. |
+| `~unlock [channel]` | Manage Channels | Undo `~lock` and restore the exact previous permissions (roles and threads included). |
+| `~lockdown` | Administrator | Lock every text channel with the same rules (threads included). |
+| `~unlockdown` | Administrator | Restore every channel locked by lockdown. |
 | `~nuke [channel]` | Administrator | Clone + delete a channel after confirmation. |
 | `~case <number>` | Manage Messages | Show a case. |
 | `~cases <user>` | Manage Messages | Moderation history (alias: `history`). |

@@ -12,6 +12,7 @@ throw at it with `~{your question}`.
 
 - 🛡️ **16 auto-mod rules**, enabled out of the box, all tunable per server
 - 🔨 **Full manual moderation**: ban, kick, timeout, warn, purge, lock, nuke, cases
+  (locks close messages *and* threads, for every role allowed in the channel)
 - 🧠 **Unrestricted AI**: any topic, streaming answers, vision, per-channel memory
 - 🎀 **Persona styles**: `elee` (cute, lowercase, kaomoji — the default) or `normal`, editable in `prompts/persona.json`
 - 🚨 **Anti-nuke + raid mode** that act on their own, no staff online required
