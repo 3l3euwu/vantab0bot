@@ -25,6 +25,8 @@ if TYPE_CHECKING:  # pragma: no cover
 log = logging.getLogger("vantab.cogs.ai")
 
 MENTION_RE = re.compile(r"<@!?\d+>")
+#: Placeholder posted while the model thinks — used by answer_message().
+THINKING = "💭 *thinking…*"
 STREAM_INTERVAL = 1.4
 DISPLAY_LIMIT = 1900
 
