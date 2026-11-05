@@ -13,9 +13,11 @@ A single-core 512 MB machine is enough; anything bigger is comfort, not necessit
 
 | Option | Cost | Always on? | Verdict |
 | --- | --- | --- | --- |
-| **Your own PC** | 0 € | only while it runs | fine to develop, bad if the PC sleeps |
-| **Oracle Cloud Always Free** (Arm VM) | 0 € | yes | **best free 24/7 option** — a real VM, persistent disk |
-| **Google Cloud free tier** (e2-micro) | 0 € | yes | same idea, smaller, 1 GB/month egress |
+| **Your own PC** (`deploy/windows/`) | 0 €, **no card** | only while it runs | best no-card option — see the section below |
+| **Old phone (Termux) / Raspberry Pi** | 0 €, **no card** | yes | great if you already own the hardware |
+| **Free bot panels** (Bot-Hosting, Silly…) | 0 €, **no card** | usually | they hold your token, manual renewals — read the warnings |
+| **Oracle Cloud Always Free** (Arm VM) | 0 € (card needed at signup) | yes | best free 24/7 cloud VM, persistent disk |
+| **Google Cloud free tier** (e2-micro) | 0 € (card needed at signup) | yes | same idea, smaller, 1 GB/month egress |
 | Raspberry Pi / old laptop at home | electricity | yes | great if you already own one |
 | Render / Railway / Koyeb / Fly.io free tiers | 0 € | **no** (sleep, credits, quotas) | not made for a long-lived gateway connection |
 | GitHub Actions, Replit, Glitch | 0 € | no | job timeouts / dead free tiers, do not bother |
@@ -32,7 +34,99 @@ Two pitfalls matter more than the provider itself:
 
 ---
 
-## Oracle Cloud Always Free (recommended)
+## No credit card? Host it at home (recommended)
+
+Every big free tier (Oracle, Google Cloud, AWS, Azure) asks for a card for identity
+verification, even when the resources stay free. If you do not want to hand over
+card details at all, the reliable options are local ones — and for a bot this small
+they are genuinely enough.
+
+### Your Windows PC, properly set up
+
+The repo ships three helpers in `deploy/windows/`:
+
+| File | Role |
+| --- | --- |
+| `run-vantab.bat` | starts `bot.py`, logs to `logs\bot.log`, restarts it 10 s after any crash |
+| `run-hidden.vbs` | same, without the console window |
+| `manage-vantab.ps1` | installs/removes a Scheduled Task that starts the bot at every logon |
+
+```powershell
+# one-time install (creates the task and starts the bot now)
+powershell -ExecutionPolicy Bypass -File deploy\windows\manage-vantab.ps1
+
+# then, whenever you need it
+powershell -ExecutionPolicy Bypass -File deploy\windows\manage-vantab.ps1 -Status
+powershell -ExecutionPolicy Bypass -File deploy\windows\manage-vantab.ps1 -Stop
+powershell -ExecutionPolicy Bypass -File deploy\windows\manage-vantab.ps1 -Start
+powershell -ExecutionPolicy Bypass -File deploy\windows\manage-vantab.ps1 -Uninstall
+```
+
+Keep the machine awake while the bot must answer — the screen may sleep, the
+system must not:
+
+```powershell
+powercfg /change standby-timeout-ac 0
+powercfg /change hibernate-timeout-ac 0
+# laptops: "closing the lid" must be set to "do nothing" in the power options
+```
+
+The bot is offline while the PC is off, asleep, or without internet. That is the
+only real trade-off of this option, and it costs nothing and leaks no token.
+
+### An old laptop, a Raspberry Pi, or an old Android phone
+
+- **Old laptop / Raspberry Pi** — install Debian/Ubuntu and use
+  `deploy/setup-vps.sh` exactly as on a VPS; the bot needs ~150 MB of RAM.
+- **Android phone with Termux** (no root, no card):
+
+  ```bash
+  pkg update && pkg install python git tmux
+  git clone https://github.com/3l3eewu/vantab0bot && cd vantab0bot
+  python -m venv .venv && .venv/bin/pip install -r requirements.txt
+  # credentials: cp tkn.example.txt tkn.txt, then edit it
+  termux-wake-lock          # keeps Android from killing the process
+  tmux new -s vantab        # then: .venv/bin/python bot.py  (Ctrl+B, D to detach)
+  ```
+
+  Disable battery optimisation for Termux, keep the phone charging and on Wi-Fi.
+
+### Free Discord-bot panels (cloud, no card)
+
+A handful of small hosts run Discord bots 24/7 on a free plan without asking for a
+card — for example [Bot-Hosting.net](https://bot-hosting.net/) (256 MB, 1 deployment,
+manual renewal every 4 days), [Silly Development](https://sillydev.co.uk/) (256 MB,
+Node/Python/Bun, no renewals) or [fps.ms](https://fps.ms/free-discord-bot-hosting/)
+(128 MB, 25 % CPU, 24 h renewal). They deploy from Git or a zip and keep the process
+alive, which is exactly what Vantab needs.
+
+Read this before using one:
+
+- **They hold your bot token.** Anyone with panel access to that token can read every
+  message and act as the bot in your server. Use a token you are willing to rotate,
+  change it in the Discord Developer Portal the moment you leave, and never give the
+  panel your Discord account password — invite-only OAuth, `bot` scope.
+- **Renewals.** Several free plans require clicking "renew" every few days; miss it
+  and the bot stops. No renewal means no uptime.
+- **Storage may be wiped.** Keep your `data/vantab.db` backup (see below); if the
+  panel loses the disk you lose warns, cases and tickets.
+- **Small RAM.** 128–256 MB is enough for Vantab, but the AI answer path plus a
+  large guild can get close. Watch the panel's memory graph.
+
+Use them as a stop-gap; the home setup above is both safer and more reliable.
+
+### What does not work
+
+| Option | Why not |
+| --- | --- |
+| GitHub Actions | 6-hour job limit, cron gaps, and using runners as a 24/7 runtime breaks GitHub's acceptable-use rules |
+| GitHub Codespaces | free hours stop when the browser closes / idles out |
+| Replit, Glitch | no free always-on runtime any more |
+| Render free web service | sleeps without traffic; a gateway bot has no traffic to keep it awake |
+
+---
+
+## Oracle Cloud Always Free (with a card, best 24/7 cloud option)
 
 > Specs move around: the Ampere A1 allowance used to be 4 OCPU / 24 GB and was cut
 > to **2 OCPU / 12 GB** in mid-2026. The AMD micro shapes (1/8 OCPU, 1 GB) are still
@@ -131,38 +225,28 @@ actually consumes it, so avoid re-running the installer in a loop.
 
 ---
 
-## Home machine, Raspberry Pi or old laptop
+## Linux at home (old laptop, Raspberry Pi)
 
-The simplest free option if the machine stays on anyway:
+Same commands as a VPS, without the cloud:
 
 ```bash
 git clone https://github.com/3l3eewu/vantab0bot && cd vantab0bot
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env      # or tkn.txt
-python bot.py
+sudo bash deploy/setup-vps.sh          # installs the systemd service
+sudo nano /opt/vantab/tkn.txt          # credentials
+sudo systemctl restart vantab
 ```
 
-To keep it running: `tmux`/`screen`, or install `deploy/vantab.service`
-(adjust `WorkingDirectory`, `User` and `EnvironmentFile`), or on Windows use
-`pythonw bot.py` plus Task Scheduler. Downside: the bot is offline whenever the
-machine sleeps or the connection drops.
+Or, without installing anything system-wide: `python3 -m venv .venv`,
+`.venv/bin/pip install -r requirements.txt`, then run `.venv/bin/python bot.py` inside
+`tmux`. Downside: the bot is offline whenever the machine sleeps or loses its link.
 
 ---
 
-## Why the "free app hosting" tiers are a poor fit
+## Outgrowing the free options
 
-These platforms are built for HTTP services, and Vantab is the opposite:
-
-- **Render free** — web services spin down after inactivity; a worker without HTTP
-  is not free. A sleeping process means a disconnected bot.
-- **Railway** — no permanent free plan any more, only trial credits.
-- **Fly.io / Koyeb** — small free allowances that keep shrinking, and they expect a
-  listening port; you would have to run a dummy HTTP server.
-- **GitHub Actions / Replit / Glitch** — job time limits or removed free tiers. Using
-  Actions as a 24/7 runtime also violates GitHub's acceptable-use rules.
-
-If you ever outgrow the free VM, a 4–5 €/month VPS (Hetzner CX22, Contabo, OVH) has
-more headroom than any free tier and keeps the same setup.
+If you ever need more headroom than a free tier, a 4–5 €/month VPS (Hetzner CX22,
+Contabo, OVH) runs the same `deploy/setup-vps.sh` and keeps `data/vantab.db` on a
+normal disk.
 
 ---
 

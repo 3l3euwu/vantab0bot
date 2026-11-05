@@ -392,7 +392,15 @@ A full walkthrough lives in **[docs/HOSTING.md](docs/HOSTING.md)**: Oracle Cloud
 Always Free (a real 24/7 VM), Google Cloud e2-micro, a Raspberry Pi, and why the
 free tiers of Render/Railway/Fly are a bad fit for a gateway bot.
 
-On a fresh Debian/Ubuntu server, one command does the whole install:
+No credit card? Host it on your own PC — `deploy/windows/manage-vantab.ps1` installs a
+Scheduled Task that starts it at logon, hides the window and restarts it on crash:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\windows\manage-vantab.ps1
+```
+
+On a fresh Debian/Ubuntu server (or an old laptop / Raspberry Pi), one command does
+the whole install:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/3l3eewu/vantab0bot/main/deploy/setup-vps.sh | sudo bash
