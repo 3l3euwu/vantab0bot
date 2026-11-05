@@ -60,6 +60,18 @@ def ticket_channel_name(
     return f"{stem}-{number:04d}"[:100]
 
 
+def staff_overwrite() -> discord.PermissionOverwrite:
+    """Permissions handed to the staff role inside a ticket channel."""
+    return discord.PermissionOverwrite(
+        view_channel=True,
+        send_messages=True,
+        read_message_history=True,
+        manage_messages=True,
+        attach_files=True,
+        embed_links=True,
+    )
+
+
 def ticket_overwrites(
     guild: discord.Guild,
     user: discord.abc.User,
@@ -91,14 +103,7 @@ def ticket_overwrites(
             embed_links=True,
         )
     if staff_role is not None:
-        overwrites[staff_role] = discord.PermissionOverwrite(
-            view_channel=True,
-            send_messages=True,
-            read_message_history=True,
-            manage_messages=True,
-            attach_files=True,
-            embed_links=True,
-        )
+        overwrites[staff_role] = staff_overwrite()
     return overwrites
 
 

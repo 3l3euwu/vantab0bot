@@ -130,6 +130,7 @@ Crossing any limit strips the account's roles and bans it.
 | `~ticket` | everyone | Overview: status, category, staff role, counters. |
 | `~ticket panel [#channel]` | Manage Server | Post the panel with the **Open a ticket** button. |
 | `~ticket setup [#category] [@staff] [#log]` | Manage Server | Configure where tickets live and who handles them (creates the category if omitted). |
+| `~ticket staff [@role]` | Manage Server | Show the ticket staff role, or set it — the role is added to open tickets straight away. |
 | `~ticket open [subject]` | everyone | Open a ticket without the panel (one per member by default). |
 | `~ticket close [reason]` | opener / staff | Archive a transcript, lock the channel and mark the ticket closed. |
 | `~ticket claim` / `~ticket unclaim` | staff | Take or release ownership of the ticket. |

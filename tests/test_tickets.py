@@ -16,6 +16,7 @@ from vantab.tickets import (
     build_transcript,
     panel_embed,
     sanitize_channel_name,
+    staff_overwrite,
     summary_lines,
     ticket_channel_name,
     ticket_overwrites,
@@ -425,5 +426,48 @@ async def test_ticket_status_panel_replies(bot, tmp_path) -> None:
         embed = reply.await_args.kwargs["embed"]
         assert "Tickets are" in embed.description
         assert any(field.name == "Max per member" for field in embed.fields)
+    finally:
+        await bot.db.close()
+
+
+def test_staff_overwrite_lets_staff_answer() -> None:
+    overwrite = staff_overwrite()
+    assert overwrite.view_channel is True
+    assert overwrite.send_messages is True
+    assert overwrite.read_message_history is True
+    assert overwrite.manage_messages is True
+
+
+async def test_ticket_staff_command_stores_the_role(bot, tmp_path) -> None:
+    bot.db.path = tmp_path / "staff.db"
+    await bot.db.connect()
+    try:
+        cog = bot.get_cog("Tickets")
+        assert cog is not None
+        assert cog.ticket.get_command("staff") is not None  # type: ignore[attr-defined]
+
+        reply = AsyncMock()
+        role = SimpleNamespace(id=4242, mention="<@&4242>")
+        ctx = SimpleNamespace(
+            guild=SimpleNamespace(
+                id=1,
+                owner_id=1,
+                get_channel=lambda channel_id: None,
+                get_role=lambda role_id: role if role_id == 4242 else None,
+            ),
+            author=_member(1),
+            channel=SimpleNamespace(id=2),
+            interaction=None,
+            reply=reply,
+        )
+        await cog.ticket_staff(ctx, role=role)  # type: ignore[attr-defined]
+        settings = await bot.db.get_guild(1)
+        assert settings.ticket_staff_role_id == 4242
+        assert reply.await_count == 1
+        assert "<@&4242>" in reply.await_args.kwargs["embed"].description
+
+        # Without an argument it only reports the current role.
+        await cog.ticket_staff(ctx, role=None)  # type: ignore[attr-defined]
+        assert "Ticket staff role" in reply.await_args.kwargs["embed"].description
     finally:
         await bot.db.close()

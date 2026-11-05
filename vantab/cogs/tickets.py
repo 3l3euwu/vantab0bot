@@ -20,6 +20,7 @@ from ..tickets import (
     TicketError,
     TicketService,
     panel_embed,
+    staff_overwrite,
     summary_lines,
 )
 from ..ui.tickets import TicketPanelView
@@ -342,11 +343,62 @@ class Tickets(commands.Cog, name="Tickets"):
             f"**Category:** {final_category.mention if final_category else '—'}\n"
             f"**Staff role:** {final_role.mention if final_role else '—'}\n"
             f"**Log channel:** {final_log.mention if final_log else '—'}\n\n"
-            "Next: `ticket panel #channel` to post the button members will click.",
+            "Next: `ticket panel #channel` to post the button members will click.\n"
+            "You can change the staff role later with `ticket staff @Role`.",
             title="✅ Ticket system configured",
             colour=Brand.SUCCESS,
         )
         await self._respond(ctx, embed, ephemeral=False)
+
+    @ticket.command(name="staff", description="Show or change the role that handles tickets.")
+    @app_commands.describe(
+        role="Role that can see and answer every ticket (omit it to see the current one)"
+    )
+    @commands.has_guild_permissions(manage_guild=True)
+    @commands.bot_has_permissions(manage_channels=True)
+    async def ticket_staff(self, ctx: commands.Context, role: discord.Role | None = None) -> None:
+        guild = ctx.guild
+        assert guild is not None
+
+        if role is None:
+            settings = await self.bot.guild_settings(guild.id)
+            current = guild.get_role(settings.ticket_staff_role_id or 0)
+            await self._respond(
+                ctx,
+                base_embed(
+                    f"**Ticket staff role:** {current.mention if current else '— (not set)'}\n\n"
+                    "Change it with `ticket staff @Role`. Administrators, Manage Server and "
+                    "Manage Channels already count as staff."
+                ),
+            )
+            return
+
+        await self.db.update_guild(guild.id, ticket_staff_role_id=role.id)
+        self.bot.invalidate_settings(guild.id)
+
+        updated_channels = 0
+        for ticket in await self.db.list_tickets(guild.id, status="open", limit=100):
+            channel = guild.get_channel(ticket.channel_id)
+            if channel is None:
+                continue
+            try:
+                await channel.set_permissions(
+                    role,
+                    overwrite=staff_overwrite(),
+                    reason=f"Ticket staff role set by {ctx.author}",
+                )
+                updated_channels += 1
+            except discord.HTTPException:
+                continue
+
+        text = f"✅ Ticket staff role set to {role.mention}."
+        if updated_channels:
+            text += f" {updated_channels} open ticket(s) were updated too."
+        text += (
+            "\nThat role can now see every ticket, answer it and use "
+            "`ticket claim/unclaim/add/remove/rename/transcript/info`."
+        )
+        await self._respond(ctx, base_embed(text, colour=Brand.SUCCESS))
 
     @ticket.command(name="panel", description="Post the panel members use to open tickets.")
     @app_commands.describe(channel="Where to post the panel (default: here)")

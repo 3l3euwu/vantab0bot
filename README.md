@@ -267,6 +267,7 @@ a full HTML transcript is archived and sent to the log channel and to the member
 ~ticket setup #category @Staff #ticket-logs   # one-time (category optional)
 ~ticket panel #support                        # the button members click
 ~ticket open Payment issue                    # or open one without the panel
+~ticket staff @Staff                           # role that handles tickets
 ~ticket claim                                  # take ownership (staff)
 ~ticket add @helper                            # loop someone in
 ~ticket close [reason]                         # archive + lock the channel
